@@ -91,6 +91,22 @@
   }
   body.editing .basket-row .del { transform: translateY(-50%) scale(1); opacity: 1; }
 
+  /* Add row (shown in edit mode) */
+  .addrow {
+    display: flex; align-items: center; gap: 8px;
+    padding: 15px 8px; border-radius: 12px; cursor: pointer;
+    color: var(--accent); font-size: 15px; font-weight: 580;
+    transition: background .12s;
+  }
+  .addrow:hover { background: var(--surface); }
+  .addrow-plus {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 16px; line-height: 1; font-weight: 600;
+  }
+  .b-name-editable { cursor: pointer; }
+  .rename-hint { font-size: 12px; color: var(--text-faint); margin-left: 2px; }
+
   /* Tabs */
   .tabs { display: flex; gap: 4px; margin-top: 14px; }
   .tab {
@@ -308,11 +324,6 @@
   <div class="detail-body" id="detailBody"></div>
 </div>
 
-<button class="fab" id="addBtn">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-  <span class="fab-label">Add stock</span>
-</button>
-
 <div class="modal-back" id="modalBack">
   <div class="modal">
     <h3>Add a stock</h3>
@@ -457,10 +468,20 @@ function renderBasketOverview(){
   list.innerHTML = "";
   const nameList = Object.keys(baskets);
 
+  // When editing, show a "+ New basket" row at the top.
+  if (editing){
+    const addRow = el("div","addrow");
+    addRow.innerHTML = `<span class="addrow-plus">+</span> New basket`;
+    addRow.onclick = () => openNewBasketModal();
+    list.appendChild(addRow);
+  }
+
   if (!nameList.length){
-    const e = el("div","empty");
-    e.innerHTML = `<h2>No baskets yet</h2><p>Create themed groups like “Semis”, “AI”, or “Energy” to track sets of stocks together.</p>`;
-    list.appendChild(e);
+    if (!editing){
+      const e = el("div","empty");
+      e.innerHTML = `<h2>No baskets yet</h2><p>Tap <b>Edit</b>, then <b>+ New basket</b> to create themed groups like “Semis”, “AI”, or “Energy”.</p>`;
+      list.appendChild(e);
+    }
     return;
   }
 
@@ -473,19 +494,41 @@ function renderBasketOverview(){
     const haveAll = pcts.length === count && count > 0;
 
     const row = el("div","basket-row");
+    const nameInner = editing
+      ? `<div class="b-name b-name-editable" title="Tap to rename">${bname} <span class="rename-hint">✎</span></div>`
+      : `<div class="b-name">${bname}</div>`;
     row.innerHTML = `
       <div class="b-name-cell">
-        <div class="b-name">${bname}</div>
+        ${nameInner}
         <div class="b-sub">${count} ${count===1?"stock":"stocks"}</div>
       </div>
       <div class="b-avg ${avg==null ? "flat" : dirClass(avg)}">${avg==null ? "—" : (haveAll ? "" : "~") + fmtPct(avg)}</div>
       <div class="b-chevron">›</div>`;
     row.onclick = () => { if(editing) return; openBasket = bname; render(); loadAll(); };
+    if (editing){
+      const nameEl = row.querySelector(".b-name-editable");
+      if (nameEl) nameEl.onclick = (ev) => { ev.stopPropagation(); renameBasket(bname); };
+    }
     const del = el("button","del"); del.textContent = "×";
     del.onclick = (ev) => { ev.stopPropagation(); deleteBasket(bname); };
     row.appendChild(del);
     list.appendChild(row);
   });
+}
+
+function renameBasket(oldName){
+  const newName = prompt("Rename basket:", oldName);
+  if (newName === null) return;             // cancelled
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === oldName) return;
+  if (baskets[trimmed]){ alert("A basket named “" + trimmed + "” already exists."); return; }
+  // Rebuild preserving order
+  const rebuilt = {};
+  Object.keys(baskets).forEach(k => { rebuilt[k === oldName ? trimmed : k] = baskets[k]; });
+  baskets = rebuilt;
+  store.saveBaskets(baskets);
+  if (openBasket === oldName) openBasket = trimmed;
+  render();
 }
 
 function createBasket(name){
@@ -516,7 +559,7 @@ function renderTabs(){
   edit.onclick = () => setEditing(!editing);
   t.appendChild(edit);
 }
-function setEditing(v){ editing = v; document.body.classList.toggle("editing", v); renderTabs(); }
+function setEditing(v){ editing = v; document.body.classList.toggle("editing", v); render(); }
 
 /* ---------- Formatting ---------- */
 const fmtPrice = p => p==null ? "—" : "$" + p.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -529,7 +572,6 @@ function render(){
   renderTabs();
   renderIndexStrip();
   renderSubhead();
-  updateFab();
   const onBasketOverview = (active === "Baskets" && !openBasket);
   $("#colhead").style.display = onBasketOverview ? "none" : "grid";
   const list = $("#list");
@@ -543,11 +585,21 @@ function render(){
   const symbols = currentSymbols();
   list.innerHTML = "";
 
+  // When editing a stock list, show an "+ Add stock" row at the top.
+  if (editing){
+    const addRow = el("div","addrow");
+    addRow.innerHTML = `<span class="addrow-plus">+</span> Add stock`;
+    addRow.onclick = () => openModal();
+    list.appendChild(addRow);
+  }
+
   if (!symbols.length){
-    const e = el("div","empty");
-    const where = openBasket ? `the “${openBasket}” basket` : `your ${active.toLowerCase()}`;
-    e.innerHTML = `<h2>Nothing here yet</h2><p>Tap “Add stock” to start building ${where}.</p>`;
-    list.appendChild(e);
+    if (!editing){
+      const e = el("div","empty");
+      const where = openBasket ? `the “${openBasket}” basket` : `your ${active.toLowerCase()}`;
+      e.innerHTML = `<h2>Nothing here yet</h2><p>Tap <b>Edit</b> to add stocks to ${where}.</p>`;
+      list.appendChild(e);
+    }
     return;
   }
 
@@ -958,16 +1010,6 @@ function drawChart(series){
 
 /* ---------- Wire up ---------- */
 $("#detailBack").onclick = closeDetail;
-function updateFab(){
-  const fab = $("#addBtn");
-  const label = fab.querySelector(".fab-label");
-  if (active === "Baskets" && !openBasket){ label.textContent = "New basket"; }
-  else { label.textContent = "Add stock"; }
-}
-$("#addBtn").onclick = () => {
-  if (active === "Baskets" && !openBasket){ openNewBasketModal(); }
-  else { openModal(); }
-};
 $("#modalBack").onclick = e => { if(e.target.id==="modalBack") closeModal(); };
 $("#searchInput").addEventListener("input", e => {
   clearTimeout(searchTimer);

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0c0e12">
+<meta name="theme-color" content="#f7f6f3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ticker">
@@ -11,16 +11,16 @@
 <title>Ticker</title>
 <style>
   :root {
-    --bg: #0c0e12;
-    --surface: #14171d;
-    --surface-2: #1a1e26;
-    --line: #232833;
-    --text: #e8eaed;
-    --text-dim: #8b93a1;
-    --text-faint: #5a6273;
-    --up: #2bd576;
-    --down: #ff5d6c;
-    --accent: #6b8cff;
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --surface-2: #efede8;
+    --line: #e4e1da;
+    --text: #1d1c1a;
+    --text-dim: #6b6862;
+    --text-faint: #9a968d;
+    --up: #1a7f4b;
+    --down: #c0392f;
+    --accent: #1d1c1a;
     --mono: "SF Mono", "JetBrains Mono", "Roboto Mono", ui-monospace, Menlo, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
   }
@@ -35,7 +35,7 @@
   /* Header */
   header {
     position: sticky; top: 0; z-index: 20;
-    background: rgba(12,14,18,0.82); backdrop-filter: saturate(160%) blur(14px);
+    background: rgba(247,246,243,0.82); backdrop-filter: saturate(140%) blur(14px);
     -webkit-backdrop-filter: saturate(160%) blur(14px);
     border-bottom: 1px solid var(--line);
     padding: calc(env(safe-area-inset-top) + 16px) 20px 14px;
@@ -45,9 +45,51 @@
   .brand .dot { color: var(--accent); }
   .status { font-family: var(--mono); font-size: 11px; color: var(--text-faint); letter-spacing: 0.02em; display: flex; align-items: center; gap: 6px; }
   .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
-  .pulse.live { background: var(--up); box-shadow: 0 0 8px var(--up); animation: breathe 2.2s ease-in-out infinite; }
-  .pulse.stale { background: #c9a227; }
+  .pulse.live { background: var(--up); box-shadow: 0 0 6px rgba(26,127,75,0.5); animation: breathe 2.2s ease-in-out infinite; }
+  .pulse.stale { background: #c9961f; }
   @keyframes breathe { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  /* Index strip */
+  .indexstrip { display: flex; gap: 8px; margin-top: 14px; }
+  .idx {
+    flex: 1; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 11px; padding: 9px 12px;
+  }
+  .idx .ilabel { font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.04em; }
+  .idx .ivalue { font-family: var(--mono); font-size: 15px; font-weight: 560; margin-top: 3px; letter-spacing: -0.01em; }
+  .idx .ipct { font-family: var(--mono); font-size: 11.5px; margin-top: 1px; }
+  .idx.skeleton .ivalue, .idx.skeleton .ipct { color: transparent; background: var(--surface-2); border-radius: 4px; animation: shimmer 1.3s ease-in-out infinite; }
+
+  /* Sub-header (inside a basket) */
+  .subhead { display: none; align-items: center; gap: 12px; padding: 10px 20px 0; }
+  .backbtn { background: none; border: none; color: var(--text-dim); font-family: var(--sans); font-size: 14px; font-weight: 560; cursor: pointer; padding: 4px 0; }
+  .subhead-title { font-size: 15px; font-weight: 640; letter-spacing: -0.01em; }
+
+  /* Basket overview rows */
+  .basket-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 8px; border-radius: 12px; cursor: pointer; position: relative;
+    transition: background .12s;
+  }
+  .basket-row:hover { background: var(--surface); }
+  .basket-row + .basket-row::before {
+    content: ""; position: absolute; top: 0; left: 8px; right: 8px; height: 1px; background: var(--line);
+  }
+  .b-name-cell { flex: 1; min-width: 0; }
+  .b-name { font-size: 16px; font-weight: 580; letter-spacing: -0.01em; }
+  .b-sub { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
+  .b-avg { font-family: var(--mono); font-size: 14px; font-weight: 560; min-width: 72px; text-align: right; }
+  .b-chevron { color: var(--text-faint); font-size: 22px; line-height: 1; margin-left: 4px; }
+  body.editing .basket-row { padding-right: 40px; }
+  body.editing .basket-row .b-chevron { display: none; }
+  .basket-row .del {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%) scale(0);
+    width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--down); color: #fff; font-size: 15px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .14s; opacity: 0;
+  }
+  body.editing .basket-row .del { transform: translateY(-50%) scale(1); opacity: 1; }
 
   /* Tabs */
   .tabs { display: flex; gap: 4px; margin-top: 14px; }
@@ -96,8 +138,8 @@
   .up { color: var(--up); }
   .down { color: var(--down); }
   .flat { color: var(--text-dim); }
-  .pct.up { background: rgba(43,213,118,0.12); }
-  .pct.down { background: rgba(255,93,108,0.12); }
+  .pct.up { background: rgba(26,127,75,0.10); }
+  .pct.down { background: rgba(192,57,47,0.09); }
   .pct.flat { background: var(--surface-2); }
 
   .skeleton .price, .skeleton .chg, .skeleton .pct {
@@ -107,8 +149,8 @@
   @keyframes shimmer { 0%,100%{opacity:.5} 50%{opacity:.9} }
 
   /* tick flash */
-  @keyframes flashUp { 0%{background:rgba(43,213,118,0.22)} 100%{background:transparent} }
-  @keyframes flashDown { 0%{background:rgba(255,93,108,0.22)} 100%{background:transparent} }
+  @keyframes flashUp { 0%{background:rgba(26,127,75,0.12)} 100%{background:transparent} }
+  @keyframes flashDown { 0%{background:rgba(192,57,47,0.10)} 100%{background:transparent} }
   .row.tickUp { animation: flashUp .8s ease-out; }
   .row.tickDown { animation: flashDown .8s ease-out; }
 
@@ -122,10 +164,10 @@
     position: fixed; left: 50%; transform: translateX(-50%);
     bottom: calc(env(safe-area-inset-bottom) + 22px); z-index: 30;
     display: flex; align-items: center; gap: 8px;
-    background: var(--accent); color: #0a0c10; border: none;
+    background: var(--accent); color: #ffffff; border: none;
     font-family: var(--sans); font-size: 14px; font-weight: 640;
     padding: 13px 22px; border-radius: 999px; cursor: pointer;
-    box-shadow: 0 8px 28px rgba(107,140,255,0.42);
+    box-shadow: 0 6px 20px rgba(29,28,26,0.22);
     transition: transform .12s;
   }
   .fab:active { transform: translateX(-50%) scale(0.96); }
@@ -133,7 +175,7 @@
 
   /* Modal */
   .modal-back {
-    position: fixed; inset: 0; z-index: 40; background: rgba(4,5,8,0.6);
+    position: fixed; inset: 0; z-index: 40; background: rgba(29,28,26,0.32);
     backdrop-filter: blur(3px); display: none; align-items: flex-end; justify-content: center;
   }
   .modal-back.open { display: flex; }
@@ -197,9 +239,45 @@
   }
   .keyrow input:focus { border-color: var(--accent); }
   .keyrow button {
-    background: var(--accent); color: #0a0c10; border: none; font-weight: 640; font-size: 13px;
+    background: var(--accent); color: #ffffff; border: none; font-weight: 640; font-size: 13px;
     padding: 0 18px; border-radius: 10px; cursor: pointer; font-family: var(--sans);
   }
+  /* Detail view */
+  .detail {
+    position: fixed; inset: 0; z-index: 35; background: var(--bg);
+    max-width: 760px; margin: 0 auto;
+    transform: translateX(100%); transition: transform .26s cubic-bezier(.2,.8,.2,1);
+    overflow-y: auto; display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 24px);
+  }
+  .detail.open { transform: translateX(0); }
+  .detail-head { padding: calc(env(safe-area-inset-top) + 14px) 20px 6px; }
+  .detail-body { padding: 8px 20px 0; }
+  .d-name { font-size: 22px; font-weight: 660; letter-spacing: -0.02em; }
+  .d-ticker { font-family: var(--mono); font-size: 13px; color: var(--text-dim); margin-top: 3px; letter-spacing: 0.03em; }
+  .d-price { font-family: var(--mono); font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin-top: 18px; }
+  .d-day { font-family: var(--mono); font-size: 14px; margin-top: 4px; }
+
+  .horizons { display: flex; gap: 6px; margin: 22px 0 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .horizons::-webkit-scrollbar { display: none; }
+  .hz {
+    flex: 0 0 auto; font-family: var(--mono); font-size: 12px; font-weight: 560;
+    color: var(--text-dim); background: transparent; border: 1px solid var(--line);
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; transition: all .14s;
+  }
+  .hz.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .chart-meta { margin: 18px 0 6px; }
+  .chart-pct { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+  .chart-range { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+  .chart-wrap { position: relative; width: 100%; aspect-ratio: 700 / 240; margin-top: 6px; }
+  .chart-wrap svg { width: 100%; height: 100%; overflow: visible; }
+  .chart-wrap svg text.axlabel { font-family: var(--mono); font-size: 11px; fill: var(--text-faint); }
+  .chart-loading, .chart-error {
+    display: flex; align-items: center; justify-content: center; height: 100%; min-height: 200px;
+    color: var(--text-dim); font-size: 13px; text-align: center; padding: 0 24px;
+  }
+
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 </style>
 </head>
@@ -207,14 +285,14 @@
 <header>
   <div class="brandrow">
     <div class="brand">Ticker<span class="dot">.</span></div>
-    <div class="status"><span class="pulse" id="pulse"></span><span id="statusText">—</span></div>
   </div>
+  <div class="indexstrip" id="indexStrip"></div>
   <div class="tabs" id="tabs"></div>
 </header>
 
 <div id="keybar"></div>
 
-<div class="colhead">
+<div class="colhead" id="colhead">
   <div>Company / Ticker</div>
   <div class="r">Price · 1D Chg</div>
   <div class="r2">1D %</div>
@@ -222,9 +300,16 @@
 
 <div class="list" id="list"></div>
 
+<div class="detail" id="detail">
+  <div class="detail-head">
+    <button class="backbtn" id="detailBack">‹ Back</button>
+  </div>
+  <div class="detail-body" id="detailBody"></div>
+</div>
+
 <button class="fab" id="addBtn">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-  Add stock
+  <span class="fab-label">Add stock</span>
 </button>
 
 <div class="modal-back" id="modalBack">
@@ -238,18 +323,38 @@
   </div>
 </div>
 
+<div class="modal-back" id="basketModalBack">
+  <div class="modal">
+    <h3>New basket</h3>
+    <div class="search-wrap">
+      <input class="search-input" id="basketNameInput" placeholder="Name it — e.g. Semis, AI, Energy" autocomplete="off">
+    </div>
+    <div class="hint">Press Enter to create.</div>
+    <div style="display:flex; gap:8px; margin-top:16px;">
+      <button id="basketCreate" style="flex:1; background:var(--accent); color:#fff; border:none; font-family:var(--sans); font-size:14px; font-weight:640; padding:13px; border-radius:12px; cursor:pointer;">Create basket</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = "https://finnhub.io/api/v1";
-const LISTS = ["Portfolio", "Watchlist", "Indexes"];
+const INDEX_SYMBOLS = [
+  { sym: "SPY", label: "SPY" },
+  { sym: "QQQ", label: "QQQ" },
+  { sym: "DIA", label: "DJI" }   // DIA = Dow ETF proxy; Finnhub free tier doesn't serve ^DJI reliably
+];
+const LISTS = ["Portfolio", "Watchlist", "Baskets"];
 const DEFAULTS = {
   Portfolio: ["AAPL","MSFT","NVDA"],
   Watchlist: ["TSLA","AMD"],
-  Indexes: [] // index ETF proxies; SPY/QQQ work on free tier where ^GSPC may not
+  Baskets: []
 };
 
 const store = {
   get key(){ return localStorage.getItem("fh_key") || ""; },
   set key(v){ localStorage.setItem("fh_key", v); },
+  get tdKey(){ return localStorage.getItem("td_key") || ""; },
+  set tdKey(v){ localStorage.setItem("td_key", v); },
   get active(){ return localStorage.getItem("active_list") || LISTS[0]; },
   set active(v){ localStorage.setItem("active_list", v); },
   lists(){
@@ -257,6 +362,10 @@ const store = {
     catch { return {...DEFAULTS}; }
   },
   saveLists(o){ localStorage.setItem("lists", JSON.stringify(o)); },
+  baskets(){
+    try { return JSON.parse(localStorage.getItem("baskets")) || {}; } catch { return {}; }
+  },
+  saveBaskets(o){ localStorage.setItem("baskets", JSON.stringify(o)); },
   names(){
     try { return JSON.parse(localStorage.getItem("names")) || {}; } catch { return {}; }
   },
@@ -264,6 +373,8 @@ const store = {
 };
 
 let lists = store.lists();
+let baskets = store.baskets();   // { "Semis": ["NVDA","AMD"], ... }
+let openBasket = null;           // name of basket currently opened, or null
 let names = store.names();
 let active = store.active;
 let editing = false;
@@ -276,24 +387,115 @@ const el = (t, c) => { const e = document.createElement(t); if(c) e.className = 
 /* ---------- API key gate ---------- */
 function renderKeyBar(){
   const bar = $("#keybar");
-  if (store.key) { bar.innerHTML = ""; return; }
+  if (store.key && store.tdKey) { bar.innerHTML = ""; return; }
   bar.innerHTML = `
     <div class="keybar">
-      <h4>One-time setup: paste your free Finnhub key</h4>
-      <p>Get a free key in ~1 minute at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>. It stays on this device only.</p>
+      <h4>One-time setup: paste your free API keys</h4>
+      <p>Quotes use <a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub</a>; charts use <a href="https://twelvedata.com/register" target="_blank" rel="noopener">Twelve Data</a>. Both free, ~1 min each. Keys stay on this device only.</p>
       <div class="keyrow">
-        <input id="keyInput" placeholder="Paste API key" autocomplete="off">
+        <input id="keyInput" placeholder="Finnhub key (quotes)" autocomplete="off" value="${store.key||""}">
+      </div>
+      <div class="keyrow" style="margin-top:8px;">
+        <input id="tdKeyInput" placeholder="Twelve Data key (charts)" autocomplete="off" value="${store.tdKey||""}">
         <button id="keySave">Save</button>
       </div>
     </div>`;
   $("#keySave").onclick = () => {
-    const v = $("#keyInput").value.trim();
-    if (!v) return;
-    store.key = v;
+    const fh = $("#keyInput").value.trim();
+    const td = $("#tdKeyInput").value.trim();
+    if (fh) store.key = fh;
+    if (td) store.tdKey = td;
     renderKeyBar();
     loadAll();
   };
-  $("#keyInput").addEventListener("keydown", e => { if(e.key==="Enter") $("#keySave").click(); });
+  [$("#keyInput"), $("#tdKeyInput")].forEach(inp =>
+    inp.addEventListener("keydown", e => { if(e.key==="Enter") $("#keySave").click(); }));
+}
+
+/* ---------- Index strip ---------- */
+function renderIndexStrip(){
+  const strip = $("#indexStrip");
+  if (!strip) return;
+  strip.innerHTML = "";
+  INDEX_SYMBOLS.forEach(ix => {
+    const q = quoteCache["__idx_" + ix.sym];
+    const tile = el("div", "idx" + (q ? "" : " skeleton"));
+    tile.innerHTML = `
+      <div class="ilabel">${ix.label}</div>
+      <div class="ivalue">${q ? fmtPrice(q.price) : "000.00"}</div>
+      <div class="ipct ${q ? dirClass(q.pct) : "flat"}">${q ? fmtPct(q.pct) : "0.00%"}</div>`;
+    strip.appendChild(tile);
+  });
+}
+async function loadIndexes(){
+  if (!store.key) return;
+  await Promise.all(INDEX_SYMBOLS.map(async ix => {
+    try {
+      const q = await fetchQuote(ix.sym);
+      if (q) quoteCache["__idx_" + ix.sym] = q;
+    } catch {}
+  }));
+  renderIndexStrip();
+}
+
+/* ---------- Baskets ---------- */
+// Returns the symbol array currently being displayed as a stock list.
+function currentSymbols(){
+  if (active === "Baskets" && openBasket) return baskets[openBasket] || [];
+  return lists[active] || [];
+}
+// Writes back the symbol array to the right place.
+function setCurrentSymbols(arr){
+  if (active === "Baskets" && openBasket){ baskets[openBasket] = arr; store.saveBaskets(baskets); }
+  else { lists[active] = arr; store.saveLists(lists); }
+}
+
+function renderBasketOverview(){
+  const list = $("#list");
+  list.innerHTML = "";
+  const nameList = Object.keys(baskets);
+
+  if (!nameList.length){
+    const e = el("div","empty");
+    e.innerHTML = `<h2>No baskets yet</h2><p>Create themed groups like “Semis”, “AI”, or “Energy” to track sets of stocks together.</p>`;
+    list.appendChild(e);
+    return;
+  }
+
+  nameList.forEach(bname => {
+    const syms = baskets[bname] || [];
+    const count = syms.length;
+    // Equal-weight average of available 1-day % changes
+    const pcts = syms.map(s => quoteCache[s]?.pct).filter(v => typeof v === "number");
+    const avg = pcts.length ? pcts.reduce((a,b)=>a+b,0) / pcts.length : null;
+    const haveAll = pcts.length === count && count > 0;
+
+    const row = el("div","basket-row");
+    row.innerHTML = `
+      <div class="b-name-cell">
+        <div class="b-name">${bname}</div>
+        <div class="b-sub">${count} ${count===1?"stock":"stocks"}</div>
+      </div>
+      <div class="b-avg ${avg==null ? "flat" : dirClass(avg)}">${avg==null ? "—" : (haveAll ? "" : "~") + fmtPct(avg)}</div>
+      <div class="b-chevron">›</div>`;
+    row.onclick = () => { if(editing) return; openBasket = bname; render(); loadAll(); };
+    const del = el("button","del"); del.textContent = "×";
+    del.onclick = (ev) => { ev.stopPropagation(); deleteBasket(bname); };
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+function createBasket(name){
+  name = name.trim();
+  if (!name) return;
+  if (!baskets[name]){ baskets[name] = []; store.saveBaskets(baskets); }
+  render();
+}
+function deleteBasket(name){
+  delete baskets[name];
+  store.saveBaskets(baskets);
+  render();
 }
 
 /* ---------- Tabs ---------- */
@@ -302,7 +504,7 @@ function renderTabs(){
   LISTS.forEach(name => {
     const b = el("button", "tab" + (name===active ? " active":""));
     b.textContent = name;
-    b.onclick = () => { active = name; store.active = name; setEditing(false); render(); loadAll(); };
+    b.onclick = () => { active = name; store.active = name; openBasket = null; setEditing(false); render(); loadAll(); };
     t.appendChild(b);
   });
   const edit = el("button", "editbtn");
@@ -323,13 +525,26 @@ const dirClass = v => v==null ? "flat" : v>0 ? "up" : v<0 ? "down" : "flat";
 /* ---------- Render rows ---------- */
 function render(){
   renderTabs();
+  renderIndexStrip();
+  renderSubhead();
+  updateFab();
+  const onBasketOverview = (active === "Baskets" && !openBasket);
+  $("#colhead").style.display = onBasketOverview ? "none" : "grid";
   const list = $("#list");
-  const symbols = lists[active] || [];
+
+  // Baskets tab, no basket opened → show the overview of baskets
+  if (active === "Baskets" && !openBasket){
+    renderBasketOverview();
+    return;
+  }
+
+  const symbols = currentSymbols();
   list.innerHTML = "";
 
   if (!symbols.length){
     const e = el("div","empty");
-    e.innerHTML = `<h2>Nothing here yet</h2><p>Tap “Add stock” to start building your ${active.toLowerCase()}.</p>`;
+    const where = openBasket ? `the “${openBasket}” basket` : `your ${active.toLowerCase()}`;
+    e.innerHTML = `<h2>Nothing here yet</h2><p>Tap “Add stock” to start building ${where}.</p>`;
     list.appendChild(e);
     return;
   }
@@ -357,8 +572,26 @@ function render(){
     del.onclick = (ev) => { ev.stopPropagation(); removeSymbol(sym); };
 
     row.appendChild(nameCell); row.appendChild(priceCell); row.appendChild(pctCell); row.appendChild(del);
+    row.onclick = () => { if(editing) return; openDetail(sym); };
     list.appendChild(row);
   });
+}
+
+/* Sub-header: back arrow + basket name when inside a basket */
+function renderSubhead(){
+  let sh = $("#subhead");
+  if (!sh){
+    sh = el("div"); sh.id = "subhead"; sh.className = "subhead";
+    $("#tabs").insertAdjacentElement("afterend", sh);
+  }
+  if (active === "Baskets" && openBasket){
+    sh.style.display = "flex";
+    sh.innerHTML = `<button class="backbtn" id="backBtn">‹ Baskets</button><span class="subhead-title">${openBasket}</span>`;
+    $("#backBtn").onclick = () => { openBasket = null; setEditing(false); render(); loadAll(); };
+  } else {
+    sh.style.display = "none";
+    sh.innerHTML = "";
+  }
 }
 
 /* ---------- Data fetching ---------- */
@@ -382,7 +615,20 @@ async function fetchName(sym){
 
 async function loadAll(){
   if (!store.key){ setStatus("nokey"); return; }
-  const symbols = lists[active] || [];
+  // On the baskets overview: fetch quotes across all baskets to compute averages.
+  if (active === "Baskets" && !openBasket){
+    render();
+    const allSyms = [...new Set(Object.values(baskets).flat())];
+    await Promise.all(allSyms.map(async sym => {
+      try {
+        const [q] = await Promise.all([ fetchQuote(sym), fetchName(sym) ]);
+        if (q) quoteCache[sym] = q;
+      } catch {}
+    }));
+    if (active === "Baskets" && !openBasket) render();
+    return;
+  }
+  const symbols = currentSymbols();
   if (!symbols.length){ setStatus("idle"); render(); return; }
   setStatus("loading");
   render();
@@ -427,6 +673,7 @@ function marketOpen(){
 }
 function setStatus(state){
   const p = $("#pulse"), t = $("#statusText");
+  if (!p || !t) return;
   p.className = "pulse";
   if (state==="nokey"){ t.textContent = "Add API key"; }
   else if (state==="loading"){ t.textContent = "Updating…"; }
@@ -441,7 +688,7 @@ function startPolling(){
   clearInterval(pollTimer);
   if (!marketOpen()) return;
   pollTimer = setInterval(() => {
-    const symbols = lists[active] || [];
+    const symbols = currentSymbols();
     symbols.forEach(async sym => {
       try { const q = await fetchQuote(sym); if(q){ const prev = quoteCache[sym]; quoteCache[sym]=q; updateRow(sym,prev);} } catch{}
     });
@@ -451,14 +698,22 @@ function startPolling(){
 
 /* ---------- Add / remove ---------- */
 function removeSymbol(sym){
-  lists[active] = (lists[active]||[]).filter(s => s !== sym);
-  store.saveLists(lists);
+  setCurrentSymbols(currentSymbols().filter(s => s !== sym));
   render();
 }
 
 let searchTimer = null;
 function openModal(){ $("#modalBack").classList.add("open"); $("#searchInput").value=""; $("#results").innerHTML=""; setTimeout(()=>$("#searchInput").focus(),60); }
 function closeModal(){ $("#modalBack").classList.remove("open"); }
+
+function openNewBasketModal(){
+  const back = $("#basketModalBack");
+  back.classList.add("open");
+  const input = $("#basketNameInput");
+  input.value = "";
+  setTimeout(()=>input.focus(),60);
+}
+function closeNewBasketModal(){ $("#basketModalBack").classList.remove("open"); }
 
 async function runSearch(term){
   const box = $("#results");
@@ -483,10 +738,9 @@ async function runSearch(term){
 function addSymbol(sym, name){
   sym = sym.toUpperCase().trim();
   if (!sym) return;
-  if (!lists[active]) lists[active] = [];
-  if (!lists[active].includes(sym)){
-    lists[active].push(sym);
-    store.saveLists(lists);
+  const cur = currentSymbols();
+  if (!cur.includes(sym)){
+    setCurrentSymbols([...cur, sym]);
     if (name){ names[sym] = name; store.saveNames(names); }
   }
   closeModal();
@@ -494,8 +748,224 @@ function addSymbol(sym, name){
   fetchQuote(sym).then(q => { if(q){ quoteCache[sym]=q; updateRow(sym,null);} fetchName(sym).then(render); }).catch(()=>{});
 }
 
+/* ---------- Stock detail view ---------- */
+const HORIZONS = [
+  { id: "1D",  label: "1 day",   interval: "5min",  outputsize: 78 },
+  { id: "5D",  label: "5 day",   interval: "30min", outputsize: 65 },
+  { id: "1M",  label: "1 month", interval: "1day",  outputsize: 22 },
+  { id: "3M",  label: "3 month", interval: "1day",  outputsize: 66 },
+  { id: "6M",  label: "6 month", interval: "1day",  outputsize: 130 },
+  { id: "YTD", label: "YTD",     interval: "1day",  outputsize: 260, ytd: true },
+  { id: "1Y",  label: "1 year",  interval: "1day",  outputsize: 260 },
+  { id: "5Y",  label: "5 year",  interval: "1week", outputsize: 260 }
+];
+const TD_API = "https://api.twelvedata.com";
+let detailSym = null;
+let detailHorizon = "1D";
+const seriesCache = {};   // `${sym}|${horizonId}` -> [{t, c}]
+
+function openDetail(sym){
+  detailSym = sym;
+  detailHorizon = "1D";
+  renderDetail();
+  $("#detail").classList.add("open");
+  loadSeries(sym, "1D");
+}
+function closeDetail(){
+  $("#detail").classList.remove("open");
+  detailSym = null;
+}
+
+function renderDetail(){
+  const body = $("#detailBody");
+  const q = quoteCache[detailSym];
+  const name = names[detailSym] || detailSym;
+  body.innerHTML = `
+    <div class="d-name">${name}</div>
+    <div class="d-ticker">${detailSym}</div>
+    <div class="d-price">${q ? fmtPrice(q.price) : "—"}</div>
+    <div class="d-day ${q ? dirClass(q.change) : "flat"}">${q ? fmtChg(q.change) + " | " + fmtPct(q.pct) + " today" : ""}</div>
+    <div class="horizons" id="horizons"></div>
+    <div class="chart-meta" id="chartMeta"></div>
+    <div class="chart-wrap" id="chartWrap"></div>
+  `;
+  const hz = $("#horizons");
+  HORIZONS.forEach(h => {
+    const b = el("button", "hz" + (h.id===detailHorizon ? " active" : ""));
+    b.textContent = h.id;
+    b.title = h.label;
+    b.onclick = () => { detailHorizon = h.id; renderDetail(); loadSeries(detailSym, h.id); };
+    hz.appendChild(b);
+  });
+  // show cached chart immediately if present, else loading
+  const cached = seriesCache[`${detailSym}|${detailHorizon}`];
+  if (cached) drawChart(cached);
+  else $("#chartWrap").innerHTML = `<div class="chart-loading">Loading chart…</div>`;
+}
+
+async function loadSeries(sym, horizonId){
+  const cacheKey = `${sym}|${horizonId}`;
+  if (seriesCache[cacheKey]){ if(sym===detailSym && horizonId===detailHorizon) drawChart(seriesCache[cacheKey]); return; }
+  if (!store.tdKey){
+    if (sym===detailSym && horizonId===detailHorizon)
+      $("#chartWrap").innerHTML = `<div class="chart-error">Add your Twelve Data key (in setup) to load charts.</div>`;
+    return;
+  }
+  const h = HORIZONS.find(x => x.id===horizonId);
+  let url = `${TD_API}/time_series?symbol=${encodeURIComponent(sym)}&interval=${h.interval}&outputsize=${h.outputsize}&apikey=${store.tdKey}&order=ASC`;
+  if (h.ytd){
+    const jan1 = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10);
+    url = `${TD_API}/time_series?symbol=${encodeURIComponent(sym)}&interval=1day&start_date=${jan1}&apikey=${store.tdKey}&order=ASC`;
+  }
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.status === "error" || !d.values){
+      if (sym===detailSym && horizonId===detailHorizon)
+        $("#chartWrap").innerHTML = `<div class="chart-error">${d.message ? d.message : "Couldn't load chart data."}</div>`;
+      return;
+    }
+    const series = d.values.map(v => ({ t: v.datetime, c: parseFloat(v.close) }));
+    seriesCache[cacheKey] = series;
+    if (sym===detailSym && horizonId===detailHorizon) drawChart(series);
+  } catch(e){
+    if (sym===detailSym && horizonId===detailHorizon)
+      $("#chartWrap").innerHTML = `<div class="chart-error">Couldn't reach the data source.</div>`;
+  }
+}
+
+function fmtAxisPrice(v){
+  if (v >= 1000) return "$" + v.toLocaleString("en-US",{maximumFractionDigits:0});
+  if (v >= 100) return "$" + v.toFixed(0);
+  return "$" + v.toFixed(2);
+}
+// Format an x-axis tick label given the series timestamp and the active horizon.
+function fmtAxisTime(ts, horizonId){
+  const d = new Date(ts.replace(" ", "T"));
+  const mo = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const wd = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  switch(horizonId){
+    case "1D": {
+      let h = d.getHours(); const ap = h>=12?"pm":"am"; h = h%12||12;
+      return h + ap;
+    }
+    case "5D": return wd[d.getDay()] + " " + d.getDate();
+    case "1M":
+    case "3M": return mo[d.getMonth()] + " " + d.getDate();
+    case "6M":
+    case "YTD":
+    case "1Y": return mo[d.getMonth()];
+    case "5Y": return String(d.getFullYear());
+    default: return mo[d.getMonth()] + " " + d.getDate();
+  }
+}
+
+function drawChart(series){
+  const wrap = $("#chartWrap");
+  if (!series || series.length < 2){ wrap.innerHTML = `<div class="chart-error">Not enough data to chart.</div>`; return; }
+  const W = 700, H = 240;
+  const mL = 52, mR = 8, mT = 12, mB = 26;   // margins for axis labels
+  const plotW = W - mL - mR, plotH = H - mT - mB;
+
+  const closes = series.map(p => p.c);
+  const min = Math.min(...closes), max = Math.max(...closes);
+  const span = (max - min) || 1;
+  const n = series.length;
+  const x = i => mL + (i/(n-1)) * plotW;
+  const y = c => mT + (1 - (c - min)/span) * plotH;
+
+  const first = closes[0], last = closes[n-1];
+  const upTrend = last >= first;
+  const stroke = upTrend ? "var(--up)" : "var(--down)";
+  const fillTop = upTrend ? "rgba(26,127,75,0.10)" : "rgba(192,57,47,0.09)";
+
+  // ----- Y axis: 4 price gridlines -----
+  const yTicks = 4;
+  let grid = "", yLabels = "";
+  for (let i=0;i<=yTicks;i++){
+    const val = min + (span * i/yTicks);
+    const py = y(val);
+    grid += `<line x1="${mL}" y1="${py.toFixed(1)}" x2="${W-mR}" y2="${py.toFixed(1)}" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+    yLabels += `<text x="${mL-8}" y="${(py+3.5).toFixed(1)}" text-anchor="end" class="axlabel">${fmtAxisPrice(val)}</text>`;
+  }
+
+  // ----- X axis: time ticks (1D anchors to trading-session hours; others evenly spaced) -----
+  let xLabels = "";
+  if (detailHorizon === "1D"){
+    // Target clock hours during the US session; label the nearest data point to each.
+    const targetHours = [10, 11, 12, 13, 14, 15, 16];
+    const used = new Set();
+    targetHours.forEach(th => {
+      // find the data point whose time is closest to this hour
+      let bestIdx = -1, bestDiff = Infinity;
+      series.forEach((p,i) => {
+        const d = new Date(p.t.replace(" ","T"));
+        const hoursFloat = d.getHours() + d.getMinutes()/60;
+        const diff = Math.abs(hoursFloat - th);
+        if (diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+      });
+      // only place a tick if a point lands reasonably near the target hour (within 35 min)
+      if (bestIdx >= 0 && bestDiff <= 0.6 && !used.has(bestIdx)){
+        used.add(bestIdx);
+        const px = x(bestIdx);
+        const anchor = px < mL + 24 ? "start" : px > W - mR - 24 ? "end" : "middle";
+        xLabels += `<text x="${px.toFixed(1)}" y="${H-8}" text-anchor="${anchor}" class="axlabel">${fmtAxisTime(series[bestIdx].t, "1D")}</text>`;
+      }
+    });
+    // fallback: if the data didn't align to session hours at all, use evenly spaced ticks
+    if (!used.size){
+      const xt = Math.min(5, n-1);
+      for (let i=0;i<=xt;i++){
+        const idx = Math.round(i/xt * (n-1));
+        const px = x(idx);
+        xLabels += `<text x="${px.toFixed(1)}" y="${H-8}" text-anchor="${i===0?"start":i===xt?"end":"middle"}" class="axlabel">${fmtAxisTime(series[idx].t, "1D")}</text>`;
+      }
+    }
+  } else {
+    const xTicks = Math.min(5, n-1);
+    for (let i=0;i<=xTicks;i++){
+      const idx = Math.round(i/(xTicks) * (n-1));
+      const px = x(idx);
+      xLabels += `<text x="${px.toFixed(1)}" y="${H-8}" text-anchor="${i===0?"start":i===xTicks?"end":"middle"}" class="axlabel">${fmtAxisTime(series[idx].t, detailHorizon)}</text>`;
+    }
+  }
+
+  // ----- price line + area -----
+  let dLine = "";
+  series.forEach((p,i) => { dLine += (i===0?"M":"L") + x(i).toFixed(1) + " " + y(p.c).toFixed(1) + " "; });
+  const dArea = dLine + `L ${x(n-1).toFixed(1)} ${mT+plotH} L ${x(0).toFixed(1)} ${mT+plotH} Z`;
+
+  wrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${grid}
+      <path d="${dArea}" fill="${fillTop}" stroke="none"/>
+      <path d="${dLine}" fill="none" stroke="${stroke}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+      ${yLabels}
+      ${xLabels}
+    </svg>`;
+
+  const pct = ((last - first)/first) * 100;
+  const chg = last - first;
+  const meta = $("#chartMeta");
+  if (meta){
+    meta.innerHTML = `
+      <div class="chart-pct ${dirClass(pct)}">${fmtChg(chg)} | ${fmtPct(pct)}</div>
+      <div class="chart-range">${HORIZONS.find(h=>h.id===detailHorizon).label} · ${series[0].t.slice(0,10)} → ${series[n-1].t.slice(0,10)}</div>`;
+  }
+}
+
 /* ---------- Wire up ---------- */
-$("#addBtn").onclick = openModal;
+$("#detailBack").onclick = closeDetail;
+function updateFab(){
+  const fab = $("#addBtn");
+  const label = fab.querySelector(".fab-label");
+  if (active === "Baskets" && !openBasket){ label.textContent = "New basket"; }
+  else { label.textContent = "Add stock"; }
+}
+$("#addBtn").onclick = () => {
+  if (active === "Baskets" && !openBasket){ openNewBasketModal(); }
+  else { openModal(); }
+};
 $("#modalBack").onclick = e => { if(e.target.id==="modalBack") closeModal(); };
 $("#searchInput").addEventListener("input", e => {
   clearTimeout(searchTimer);
@@ -507,10 +977,21 @@ $("#searchInput").addEventListener("keydown", e => {
 });
 document.addEventListener("visibilitychange", () => { if(!document.hidden) loadAll(); });
 
+/* New-basket modal wiring */
+$("#basketModalBack").onclick = e => { if(e.target.id==="basketModalBack") closeNewBasketModal(); };
+$("#basketCreate").onclick = () => {
+  const v = $("#basketNameInput").value.trim();
+  if (v){ createBasket(v); closeNewBasketModal(); }
+};
+$("#basketNameInput").addEventListener("keydown", e => {
+  if (e.key==="Enter"){ const v = e.target.value.trim(); if(v){ createBasket(v); closeNewBasketModal(); } }
+});
+
 /* ---------- Boot ---------- */
 renderKeyBar();
 render();
 loadAll();
+loadIndexes();
 </script>
 </body>
 </html>

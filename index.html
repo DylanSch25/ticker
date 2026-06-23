@@ -91,6 +91,31 @@
   }
   body.editing .basket-row .del { transform: translateY(-50%) scale(1); opacity: 1; }
 
+  /* Sort bar */
+  .sortbar { padding: 10px 20px 0; display: flex; justify-content: flex-end; }
+  .sort-wrap { display: flex; align-items: center; gap: 8px; }
+  .sort-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-faint); }
+  .sort-select { position: relative; }
+  .sort-select select {
+    -webkit-appearance: none; appearance: none;
+    background: var(--surface); border: 1px solid var(--line); color: var(--text);
+    font-family: var(--sans); font-size: 13px; font-weight: 540;
+    padding: 7px 28px 7px 12px; border-radius: 9px; cursor: pointer; outline: none;
+  }
+  .sort-select select:focus { border-color: var(--accent); }
+  .sort-caret { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-dim); font-size: 11px; }
+
+  /* Drag reordering */
+  .drag-handle {
+    color: var(--text-faint); font-size: 18px; line-height: 1; cursor: grab;
+    padding-right: 4px; user-select: none; touch-action: none;
+  }
+  .row.draggable { cursor: grab; }
+  .row.dragging { opacity: 0.5; background: var(--surface); }
+  .row.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+  body.editing .row.draggable { grid-template-columns: auto 1fr auto auto; }
+  .sortnote { font-size: 12px; color: var(--text-faint); padding: 2px 10px 8px; }
+
   /* Add row (shown in edit mode) */
   .addrow {
     display: flex; align-items: center; gap: 8px;
@@ -309,6 +334,8 @@
 
 <div id="keybar"></div>
 
+<div class="sortbar" id="sortbar"></div>
+
 <div class="colhead" id="colhead">
   <div>Company / Ticker</div>
   <div class="r">Price · 1D Chg</div>
@@ -387,6 +414,7 @@ const store = {
 let lists = store.lists();
 let baskets = store.baskets();   // { "Semis": ["NVDA","AMD"], ... }
 let openBasket = null;           // name of basket currently opened, or null
+let sortMode = "manual";         // "manual" | "high" | "low"
 let names = store.names();
 let active = store.active;
 let editing = false;
@@ -463,10 +491,62 @@ function setCurrentSymbols(arr){
   else { lists[active] = arr; store.saveLists(lists); }
 }
 
+// Returns symbols in display order: manual order, or sorted by 1D % return.
+function displaySymbols(){
+  const syms = currentSymbols().slice();
+  if (sortMode === "manual") return syms;
+  syms.sort((a,b) => {
+    const pa = quoteCache[a]?.pct, pb = quoteCache[b]?.pct;
+    const va = (typeof pa === "number") ? pa : -Infinity;
+    const vb = (typeof pb === "number") ? pb : -Infinity;
+    return sortMode === "high" ? vb - va : va - vb;
+  });
+  return syms;
+}
+
+/* ---------- Drag reordering (stocks) ---------- */
+let dragSym = null;
+function onDragStart(e){ dragSym = this.dataset.sym; this.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; }
+function onDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect = "move";
+  const over = this.dataset.sym;
+  if (over && over !== dragSym){ this.classList.add("drop-target"); }
+}
+function onDrop(e){
+  e.preventDefault();
+  this.classList.remove("drop-target");
+  const target = this.dataset.sym;
+  if (!dragSym || !target || dragSym === target) return;
+  const arr = currentSymbols().slice();
+  const from = arr.indexOf(dragSym), to = arr.indexOf(target);
+  if (from < 0 || to < 0) return;
+  arr.splice(from, 1);
+  arr.splice(to, 0, dragSym);
+  setCurrentSymbols(arr);
+  render();
+}
+function onDragEnd(){
+  document.querySelectorAll(".row.dragging, .row.drop-target").forEach(r => r.classList.remove("dragging","drop-target"));
+  dragSym = null;
+}
+
+function basketAvg(bname){
+  const syms = baskets[bname] || [];
+  const pcts = syms.map(s => quoteCache[s]?.pct).filter(v => typeof v === "number");
+  return pcts.length ? pcts.reduce((a,b)=>a+b,0)/pcts.length : null;
+}
+function displayBasketNames(){
+  const nameList = Object.keys(baskets);
+  if (sortMode === "manual") return nameList;
+  return nameList.slice().sort((a,b) => {
+    const va = basketAvg(a), vb = basketAvg(b);
+    const na = (va==null) ? -Infinity : va, nb = (vb==null) ? -Infinity : vb;
+    return sortMode === "high" ? nb - na : na - nb;
+  });
+}
+
 function renderBasketOverview(){
   const list = $("#list");
   list.innerHTML = "";
-  const nameList = Object.keys(baskets);
 
   // When editing, show a "+ New basket" row at the top.
   if (editing){
@@ -475,6 +555,9 @@ function renderBasketOverview(){
     addRow.onclick = () => openNewBasketModal();
     list.appendChild(addRow);
   }
+
+  const nameList = displayBasketNames();
+  const canDragB = editing && sortMode === "manual";
 
   if (!nameList.length){
     if (!editing){
@@ -485,19 +568,35 @@ function renderBasketOverview(){
     return;
   }
 
+  if (editing && sortMode !== "manual"){
+    const note = el("div","sortnote");
+    note.textContent = "Set sort back to “Sort by…” to drag and reorder.";
+    list.appendChild(note);
+  }
+
   nameList.forEach(bname => {
     const syms = baskets[bname] || [];
     const count = syms.length;
-    // Equal-weight average of available 1-day % changes
+    const avg = basketAvg(bname);
     const pcts = syms.map(s => quoteCache[s]?.pct).filter(v => typeof v === "number");
-    const avg = pcts.length ? pcts.reduce((a,b)=>a+b,0) / pcts.length : null;
     const haveAll = pcts.length === count && count > 0;
 
-    const row = el("div","basket-row");
+    const row = el("div","basket-row" + (canDragB ? " draggable" : ""));
+    row.dataset.basket = bname;
+    if (canDragB){
+      row.draggable = true;
+      row.addEventListener("dragstart", onBasketDragStart);
+      row.addEventListener("dragover", onBasketDragOver);
+      row.addEventListener("dragleave", function(){ this.classList.remove("drop-target"); });
+      row.addEventListener("drop", onBasketDrop);
+      row.addEventListener("dragend", onBasketDragEnd);
+    }
+    const handleHtml = canDragB ? `<div class="drag-handle">≡</div>` : "";
     const nameInner = editing
       ? `<div class="b-name b-name-editable" title="Tap to rename">${bname} <span class="rename-hint">✎</span></div>`
       : `<div class="b-name">${bname}</div>`;
     row.innerHTML = `
+      ${handleHtml}
       <div class="b-name-cell">
         ${nameInner}
         <div class="b-sub">${count} ${count===1?"stock":"stocks"}</div>
@@ -514,6 +613,33 @@ function renderBasketOverview(){
     row.appendChild(del);
     list.appendChild(row);
   });
+}
+
+/* ---------- Drag reordering (baskets) ---------- */
+let dragBasket = null;
+function onBasketDragStart(e){ dragBasket = this.dataset.basket; this.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; }
+function onBasketDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect = "move";
+  if (this.dataset.basket !== dragBasket) this.classList.add("drop-target");
+}
+function onBasketDrop(e){
+  e.preventDefault();
+  this.classList.remove("drop-target");
+  const target = this.dataset.basket;
+  if (!dragBasket || !target || dragBasket === target) return;
+  const order = Object.keys(baskets);
+  const from = order.indexOf(dragBasket), to = order.indexOf(target);
+  if (from < 0 || to < 0) return;
+  order.splice(from, 1);
+  order.splice(to, 0, dragBasket);
+  const rebuilt = {};
+  order.forEach(k => rebuilt[k] = baskets[k]);
+  baskets = rebuilt;
+  store.saveBaskets(baskets);
+  render();
+}
+function onBasketDragEnd(){
+  document.querySelectorAll(".basket-row.dragging, .basket-row.drop-target").forEach(r => r.classList.remove("dragging","drop-target"));
+  dragBasket = null;
 }
 
 function renameBasket(oldName){
@@ -541,6 +667,27 @@ function deleteBasket(name){
   delete baskets[name];
   store.saveBaskets(baskets);
   render();
+}
+
+/* ---------- Sort bar ---------- */
+const SORT_LABELS = { manual: "Manual", high: "Highest return", low: "Lowest return" };
+function renderSortBar(){
+  const bar = $("#sortbar");
+  if (!bar) return;
+  bar.innerHTML = `
+    <div class="sort-wrap">
+      <div class="sort-select">
+        <select id="sortSelect">
+          <option value="manual">Sort by…</option>
+          <option value="high">Highest return</option>
+          <option value="low">Lowest return</option>
+        </select>
+        <span class="sort-caret">▾</span>
+      </div>
+    </div>`;
+  const sel = $("#sortSelect");
+  sel.value = sortMode;
+  sel.onchange = () => { sortMode = sel.value; render(); };
 }
 
 /* ---------- Tabs ---------- */
@@ -572,6 +719,7 @@ function render(){
   renderTabs();
   renderIndexStrip();
   renderSubhead();
+  renderSortBar();
   const onBasketOverview = (active === "Baskets" && !openBasket);
   $("#colhead").style.display = onBasketOverview ? "none" : "grid";
   const list = $("#list");
@@ -582,8 +730,9 @@ function render(){
     return;
   }
 
-  const symbols = currentSymbols();
+  const symbols = displaySymbols();
   list.innerHTML = "";
+  const canDrag = editing && sortMode === "manual";
 
   // When editing a stock list, show an "+ Add stock" row at the top.
   if (editing){
@@ -591,6 +740,11 @@ function render(){
     addRow.innerHTML = `<span class="addrow-plus">+</span> Add stock`;
     addRow.onclick = () => openModal();
     list.appendChild(addRow);
+    if (sortMode !== "manual"){
+      const note = el("div","sortnote");
+      note.textContent = "Set sort back to “Sort by…” to drag and reorder.";
+      list.appendChild(note);
+    }
   }
 
   if (!symbols.length){
@@ -605,8 +759,21 @@ function render(){
 
   symbols.forEach(sym => {
     const q = quoteCache[sym];
-    const row = el("div","row" + (q ? "" : " skeleton"));
+    const row = el("div","row" + (q ? "" : " skeleton") + (canDrag ? " draggable" : ""));
     row.dataset.sym = sym;
+    if (canDrag){
+      row.draggable = true;
+      row.addEventListener("dragstart", onDragStart);
+      row.addEventListener("dragover", onDragOver);
+      row.addEventListener("dragleave", function(){ this.classList.remove("drop-target"); });
+      row.addEventListener("drop", onDrop);
+      row.addEventListener("dragend", onDragEnd);
+    }
+
+    if (canDrag){
+      const handle = el("div","drag-handle"); handle.innerHTML = "≡";
+      row.appendChild(handle);
+    }
 
     const nameCell = el("div","name-cell");
     const cname = el("div","cname"); cname.textContent = names[sym] || sym;

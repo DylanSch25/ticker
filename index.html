@@ -249,8 +249,9 @@
     transform: translateX(100%); transition: transform .26s cubic-bezier(.2,.8,.2,1);
     overflow-y: auto; display: flex; flex-direction: column;
     padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 24px);
+    visibility: hidden;
   }
-  .detail.open { transform: translateX(0); }
+  .detail.open { transform: translateX(0); visibility: visible; }
   .detail-head { padding: calc(env(safe-area-inset-top) + 14px) 20px 6px; }
   .detail-body { padding: 8px 20px 0; }
   .d-name { font-size: 22px; font-weight: 660; letter-spacing: -0.02em; }
@@ -407,6 +408,7 @@ function renderKeyBar(){
     if (td) store.tdKey = td;
     renderKeyBar();
     loadAll();
+    loadIndexes();
   };
   [$("#keyInput"), $("#tdKeyInput")].forEach(inp =>
     inp.addEventListener("keydown", e => { if(e.key==="Enter") $("#keySave").click(); }));
@@ -975,7 +977,7 @@ $("#searchInput").addEventListener("input", e => {
 $("#searchInput").addEventListener("keydown", e => {
   if (e.key==="Enter"){ const v = e.target.value.trim(); if(v) addSymbol(v); }
 });
-document.addEventListener("visibilitychange", () => { if(!document.hidden) loadAll(); });
+document.addEventListener("visibilitychange", () => { if(!document.hidden){ loadAll(); loadIndexes(); } });
 
 /* New-basket modal wiring */
 $("#basketModalBack").onclick = e => { if(e.target.id==="basketModalBack") closeNewBasketModal(); };

@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0c0e12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ticker">
+<link rel="manifest" href="manifest.json">
+<title>Ticker</title>
+<style>
+  :root {
+    --bg: #0c0e12;
+    --surface: #14171d;
+    --surface-2: #1a1e26;
+    --line: #232833;
+    --text: #e8eaed;
+    --text-dim: #8b93a1;
+    --text-faint: #5a6273;
+    --up: #2bd576;
+    --down: #ff5d6c;
+    --accent: #6b8cff;
+    --mono: "SF Mono", "JetBrains Mono", "Roboto Mono", ui-monospace, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--text); font-family: var(--sans); }
+  body {
+    max-width: 760px; margin: 0 auto;
+    padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 88px);
+    min-height: 100vh; -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(12,14,18,0.82); backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    border-bottom: 1px solid var(--line);
+    padding: calc(env(safe-area-inset-top) + 16px) 20px 14px;
+  }
+  .brandrow { display: flex; align-items: baseline; justify-content: space-between; }
+  .brand { font-size: 21px; font-weight: 680; letter-spacing: -0.02em; }
+  .brand .dot { color: var(--accent); }
+  .status { font-family: var(--mono); font-size: 11px; color: var(--text-faint); letter-spacing: 0.02em; display: flex; align-items: center; gap: 6px; }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
+  .pulse.live { background: var(--up); box-shadow: 0 0 8px var(--up); animation: breathe 2.2s ease-in-out infinite; }
+  .pulse.stale { background: #c9a227; }
+  @keyframes breathe { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin-top: 14px; }
+  .tab {
+    font-size: 13px; font-weight: 560; color: var(--text-dim);
+    padding: 7px 13px; border-radius: 8px; cursor: pointer; border: none;
+    background: transparent; font-family: var(--sans); transition: background .15s, color .15s;
+  }
+  .tab.active { background: var(--surface-2); color: var(--text); }
+
+  /* Column header */
+  .colhead {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 14px; padding: 12px 20px 6px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .colhead .r { text-align: right; min-width: 96px; }
+  .colhead .r2 { text-align: right; min-width: 70px; }
+
+  /* Rows */
+  .list { padding: 0 12px; }
+  .row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 14px; align-items: center;
+    padding: 13px 8px; border-radius: 12px;
+    cursor: pointer; position: relative;
+    transition: background .12s;
+  }
+  .row:hover { background: var(--surface); }
+  .row + .row::before {
+    content: ""; position: absolute; top: 0; left: 8px; right: 8px;
+    height: 1px; background: var(--line);
+  }
+  .name-cell { min-width: 0; }
+  .cname { font-size: 15px; font-weight: 560; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ticker { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); margin-top: 2px; letter-spacing: 0.03em; }
+  .price-cell { text-align: right; min-width: 96px; }
+  .price { font-family: var(--mono); font-size: 15px; font-weight: 540; letter-spacing: -0.01em; }
+  .chg { font-family: var(--mono); font-size: 11.5px; margin-top: 2px; }
+  .pct-cell { text-align: right; min-width: 70px; }
+  .pct {
+    font-family: var(--mono); font-size: 13px; font-weight: 560;
+    padding: 4px 7px; border-radius: 7px; display: inline-block; min-width: 64px;
+  }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .flat { color: var(--text-dim); }
+  .pct.up { background: rgba(43,213,118,0.12); }
+  .pct.down { background: rgba(255,93,108,0.12); }
+  .pct.flat { background: var(--surface-2); }
+
+  .skeleton .price, .skeleton .chg, .skeleton .pct {
+    color: transparent; background: var(--surface-2); border-radius: 5px;
+    animation: shimmer 1.3s ease-in-out infinite;
+  }
+  @keyframes shimmer { 0%,100%{opacity:.5} 50%{opacity:.9} }
+
+  /* tick flash */
+  @keyframes flashUp { 0%{background:rgba(43,213,118,0.22)} 100%{background:transparent} }
+  @keyframes flashDown { 0%{background:rgba(255,93,108,0.22)} 100%{background:transparent} }
+  .row.tickUp { animation: flashUp .8s ease-out; }
+  .row.tickDown { animation: flashDown .8s ease-out; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 64px 32px; color: var(--text-dim); }
+  .empty h2 { font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .empty p { font-size: 14px; line-height: 1.5; max-width: 320px; margin: 0 auto; }
+
+  /* Add button (FAB) */
+  .fab {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom) + 22px); z-index: 30;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--accent); color: #0a0c10; border: none;
+    font-family: var(--sans); font-size: 14px; font-weight: 640;
+    padding: 13px 22px; border-radius: 999px; cursor: pointer;
+    box-shadow: 0 8px 28px rgba(107,140,255,0.42);
+    transition: transform .12s;
+  }
+  .fab:active { transform: translateX(-50%) scale(0.96); }
+  .fab svg { width: 16px; height: 16px; }
+
+  /* Modal */
+  .modal-back {
+    position: fixed; inset: 0; z-index: 40; background: rgba(4,5,8,0.6);
+    backdrop-filter: blur(3px); display: none; align-items: flex-end; justify-content: center;
+  }
+  .modal-back.open { display: flex; }
+  .modal {
+    background: var(--surface); width: 100%; max-width: 760px;
+    border-radius: 20px 20px 0 0; border-top: 1px solid var(--line);
+    padding: 22px 20px calc(env(safe-area-inset-bottom) + 22px);
+    animation: slideUp .22s cubic-bezier(.2,.8,.2,1);
+  }
+  @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+  .modal h3 { font-size: 16px; font-weight: 620; margin-bottom: 14px; }
+  .search-wrap { position: relative; }
+  .search-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--line);
+    color: var(--text); font-family: var(--mono); font-size: 15px;
+    padding: 13px 14px; border-radius: 12px; outline: none; letter-spacing: 0.04em;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: var(--text-faint); font-family: var(--sans); letter-spacing: 0; }
+  .hint { font-size: 12px; color: var(--text-faint); margin: 10px 2px 0; }
+  .results { margin-top: 14px; max-height: 46vh; overflow-y: auto; }
+  .res-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 12px; border-radius: 10px; cursor: pointer;
+  }
+  .res-item:hover { background: var(--surface-2); }
+  .res-item .rname { font-size: 14px; }
+  .res-item .rsym { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .res-add { color: var(--accent); font-size: 13px; font-weight: 600; }
+  .searching { padding: 16px 12px; color: var(--text-dim); font-size: 13px; }
+
+  /* Delete mode */
+  .row .del {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%) scale(0);
+    width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--down); color: #fff; font-size: 15px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .14s; opacity: 0;
+  }
+  body.editing .row { padding-right: 40px; }
+  body.editing .row .del { transform: translateY(-50%) scale(1); opacity: 1; }
+  body.editing .row { cursor: default; }
+  .editbtn {
+    background: none; border: none; color: var(--text-dim); font-family: var(--sans);
+    font-size: 13px; font-weight: 560; cursor: pointer; padding: 4px 2px;
+  }
+  body.editing .editbtn { color: var(--accent); }
+
+  /* API key banner */
+  .keybar {
+    margin: 14px 12px 0; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px 16px;
+  }
+  .keybar h4 { font-size: 14px; font-weight: 620; margin-bottom: 6px; }
+  .keybar p { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin-bottom: 12px; }
+  .keybar p a { color: var(--accent); text-decoration: none; }
+  .keyrow { display: flex; gap: 8px; }
+  .keyrow input {
+    flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    font-family: var(--mono); font-size: 13px; padding: 11px 12px; border-radius: 10px; outline: none;
+  }
+  .keyrow input:focus { border-color: var(--accent); }
+  .keyrow button {
+    background: var(--accent); color: #0a0c10; border: none; font-weight: 640; font-size: 13px;
+    padding: 0 18px; border-radius: 10px; cursor: pointer; font-family: var(--sans);
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brandrow">
+    <div class="brand">Ticker<span class="dot">.</span></div>
+    <div class="status"><span class="pulse" id="pulse"></span><span id="statusText">—</span></div>
+  </div>
+  <div class="tabs" id="tabs"></div>
+</header>
+
+<div id="keybar"></div>
+
+<div class="colhead">
+  <div>Company / Ticker</div>
+  <div class="r">Price · 1D Chg</div>
+  <div class="r2">1D %</div>
+</div>
+
+<div class="list" id="list"></div>
+
+<button class="fab" id="addBtn">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  Add stock
+</button>
+
+<div class="modal-back" id="modalBack">
+  <div class="modal">
+    <h3>Add a stock</h3>
+    <div class="search-wrap">
+      <input class="search-input" id="searchInput" placeholder="Search ticker or company — e.g. AAPL, Nvidia" autocomplete="off" autocapitalize="characters">
+    </div>
+    <div class="hint">Press Enter to add an exact ticker, or pick from results.</div>
+    <div class="results" id="results"></div>
+  </div>
+</div>
+
+<script>
+const API = "https://finnhub.io/api/v1";
+const LISTS = ["Portfolio", "Watchlist", "Indexes"];
+const DEFAULTS = {
+  Portfolio: ["AAPL","MSFT","NVDA"],
+  Watchlist: ["TSLA","AMD"],
+  Indexes: [] // index ETF proxies; SPY/QQQ work on free tier where ^GSPC may not
+};
+
+const store = {
+  get key(){ return localStorage.getItem("fh_key") || ""; },
+  set key(v){ localStorage.setItem("fh_key", v); },
+  get active(){ return localStorage.getItem("active_list") || LISTS[0]; },
+  set active(v){ localStorage.setItem("active_list", v); },
+  lists(){
+    try { return JSON.parse(localStorage.getItem("lists")) || {...DEFAULTS}; }
+    catch { return {...DEFAULTS}; }
+  },
+  saveLists(o){ localStorage.setItem("lists", JSON.stringify(o)); },
+  names(){
+    try { return JSON.parse(localStorage.getItem("names")) || {}; } catch { return {}; }
+  },
+  saveNames(o){ localStorage.setItem("names", JSON.stringify(o)); }
+};
+
+let lists = store.lists();
+let names = store.names();
+let active = store.active;
+let editing = false;
+let quoteCache = {};   // symbol -> {price, change, pct}
+let pollTimer = null;
+
+const $ = s => document.querySelector(s);
+const el = (t, c) => { const e = document.createElement(t); if(c) e.className = c; return e; };
+
+/* ---------- API key gate ---------- */
+function renderKeyBar(){
+  const bar = $("#keybar");
+  if (store.key) { bar.innerHTML = ""; return; }
+  bar.innerHTML = `
+    <div class="keybar">
+      <h4>One-time setup: paste your free Finnhub key</h4>
+      <p>Get a free key in ~1 minute at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>. It stays on this device only.</p>
+      <div class="keyrow">
+        <input id="keyInput" placeholder="Paste API key" autocomplete="off">
+        <button id="keySave">Save</button>
+      </div>
+    </div>`;
+  $("#keySave").onclick = () => {
+    const v = $("#keyInput").value.trim();
+    if (!v) return;
+    store.key = v;
+    renderKeyBar();
+    loadAll();
+  };
+  $("#keyInput").addEventListener("keydown", e => { if(e.key==="Enter") $("#keySave").click(); });
+}
+
+/* ---------- Tabs ---------- */
+function renderTabs(){
+  const t = $("#tabs"); t.innerHTML = "";
+  LISTS.forEach(name => {
+    const b = el("button", "tab" + (name===active ? " active":""));
+    b.textContent = name;
+    b.onclick = () => { active = name; store.active = name; setEditing(false); render(); loadAll(); };
+    t.appendChild(b);
+  });
+  const edit = el("button", "editbtn");
+  edit.id = "editToggle";
+  edit.textContent = editing ? "Done" : "Edit";
+  edit.style.marginLeft = "auto";
+  edit.onclick = () => setEditing(!editing);
+  t.appendChild(edit);
+}
+function setEditing(v){ editing = v; document.body.classList.toggle("editing", v); renderTabs(); }
+
+/* ---------- Formatting ---------- */
+const fmtPrice = p => p==null ? "—" : "$" + p.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtChg = c => c==null ? "" : (c>=0?"+":"−") + "$" + Math.abs(c).toFixed(2);
+const fmtPct = p => p==null ? "—" : (p>=0?"+":"−") + Math.abs(p).toFixed(2) + "%";
+const dirClass = v => v==null ? "flat" : v>0 ? "up" : v<0 ? "down" : "flat";
+
+/* ---------- Render rows ---------- */
+function render(){
+  renderTabs();
+  const list = $("#list");
+  const symbols = lists[active] || [];
+  list.innerHTML = "";
+
+  if (!symbols.length){
+    const e = el("div","empty");
+    e.innerHTML = `<h2>Nothing here yet</h2><p>Tap “Add stock” to start building your ${active.toLowerCase()}.</p>`;
+    list.appendChild(e);
+    return;
+  }
+
+  symbols.forEach(sym => {
+    const q = quoteCache[sym];
+    const row = el("div","row" + (q ? "" : " skeleton"));
+    row.dataset.sym = sym;
+
+    const nameCell = el("div","name-cell");
+    const cname = el("div","cname"); cname.textContent = names[sym] || sym;
+    const tick = el("div","ticker"); tick.textContent = sym;
+    nameCell.appendChild(cname); nameCell.appendChild(tick);
+
+    const priceCell = el("div","price-cell");
+    const price = el("div","price"); price.textContent = q ? fmtPrice(q.price) : "0000.00";
+    const chg = el("div","chg " + dirClass(q?.change)); chg.textContent = q ? fmtChg(q.change) : "+0.00";
+    priceCell.appendChild(price); priceCell.appendChild(chg);
+
+    const pctCell = el("div","pct-cell");
+    const pct = el("span","pct " + dirClass(q?.pct)); pct.textContent = q ? fmtPct(q.pct) : "0.00%";
+    pctCell.appendChild(pct);
+
+    const del = el("button","del"); del.textContent = "×";
+    del.onclick = (ev) => { ev.stopPropagation(); removeSymbol(sym); };
+
+    row.appendChild(nameCell); row.appendChild(priceCell); row.appendChild(pctCell); row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+/* ---------- Data fetching ---------- */
+async function fetchQuote(sym){
+  const r = await fetch(`${API}/quote?symbol=${encodeURIComponent(sym)}&token=${store.key}`);
+  if (!r.ok) throw new Error("quote " + r.status);
+  const d = await r.json();
+  // Finnhub: c=current, d=change, dp=percent, pc=prevClose
+  if (d.c === 0 && d.pc === 0) return null; // unknown symbol
+  return { price: d.c, change: d.d, pct: d.dp };
+}
+
+async function fetchName(sym){
+  if (names[sym]) return;
+  try {
+    const r = await fetch(`${API}/stock/profile2?symbol=${encodeURIComponent(sym)}&token=${store.key}`);
+    const d = await r.json();
+    if (d && d.name){ names[sym] = d.name; store.saveNames(names); }
+  } catch {}
+}
+
+async function loadAll(){
+  if (!store.key){ setStatus("nokey"); return; }
+  const symbols = lists[active] || [];
+  if (!symbols.length){ setStatus("idle"); render(); return; }
+  setStatus("loading");
+  render();
+  await Promise.all(symbols.map(async sym => {
+    try {
+      const [q] = await Promise.all([ fetchQuote(sym), fetchName(sym) ]);
+      if (q){
+        const prev = quoteCache[sym];
+        quoteCache[sym] = q;
+        updateRow(sym, prev);
+      }
+    } catch(e){ /* leave skeleton */ }
+  }));
+  setStatus(marketOpen() ? "live" : "stale");
+  startPolling();
+}
+
+function updateRow(sym, prev){
+  const row = document.querySelector(`.row[data-sym="${sym}"]`);
+  if (!row) { render(); return; }
+  const q = quoteCache[sym];
+  row.classList.remove("skeleton");
+  row.querySelector(".price").textContent = fmtPrice(q.price);
+  const chg = row.querySelector(".chg");
+  chg.textContent = fmtChg(q.change); chg.className = "chg " + dirClass(q.change);
+  const pct = row.querySelector(".pct");
+  pct.textContent = fmtPct(q.pct); pct.className = "pct " + dirClass(q.pct);
+  if (prev && prev.price != null && q.price !== prev.price){
+    row.classList.remove("tickUp","tickDown");
+    void row.offsetWidth;
+    row.classList.add(q.price > prev.price ? "tickUp" : "tickDown");
+  }
+}
+
+/* ---------- Status ---------- */
+function marketOpen(){
+  const now = new Date();
+  const et = new Date(now.toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const day = et.getDay(); if (day===0||day===6) return false;
+  const mins = et.getHours()*60 + et.getMinutes();
+  return mins >= 570 && mins < 960; // 9:30–16:00 ET
+}
+function setStatus(state){
+  const p = $("#pulse"), t = $("#statusText");
+  p.className = "pulse";
+  if (state==="nokey"){ t.textContent = "Add API key"; }
+  else if (state==="loading"){ t.textContent = "Updating…"; }
+  else if (state==="live"){ p.classList.add("live"); t.textContent = "Live · " + timeNow(); }
+  else if (state==="stale"){ p.classList.add("stale"); t.textContent = "Market closed · " + timeNow(); }
+  else { t.textContent = "Ready"; }
+}
+const timeNow = () => new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+
+/* ---------- Polling while open ---------- */
+function startPolling(){
+  clearInterval(pollTimer);
+  if (!marketOpen()) return;
+  pollTimer = setInterval(() => {
+    const symbols = lists[active] || [];
+    symbols.forEach(async sym => {
+      try { const q = await fetchQuote(sym); if(q){ const prev = quoteCache[sym]; quoteCache[sym]=q; updateRow(sym,prev);} } catch{}
+    });
+    setStatus("live");
+  }, 15000);
+}
+
+/* ---------- Add / remove ---------- */
+function removeSymbol(sym){
+  lists[active] = (lists[active]||[]).filter(s => s !== sym);
+  store.saveLists(lists);
+  render();
+}
+
+let searchTimer = null;
+function openModal(){ $("#modalBack").classList.add("open"); $("#searchInput").value=""; $("#results").innerHTML=""; setTimeout(()=>$("#searchInput").focus(),60); }
+function closeModal(){ $("#modalBack").classList.remove("open"); }
+
+async function runSearch(term){
+  const box = $("#results");
+  if (!term.trim()){ box.innerHTML=""; return; }
+  if (!store.key){ box.innerHTML = `<div class="searching">Add your API key first.</div>`; return; }
+  box.innerHTML = `<div class="searching">Searching…</div>`;
+  try {
+    const r = await fetch(`${API}/search?q=${encodeURIComponent(term)}&token=${store.key}`);
+    const d = await r.json();
+    const items = (d.result||[]).filter(x => !x.symbol.includes(".")).slice(0,12);
+    if (!items.length){ box.innerHTML = `<div class="searching">No matches. Press Enter to add “${term.toUpperCase()}” directly.</div>`; return; }
+    box.innerHTML = "";
+    items.forEach(it => {
+      const row = el("div","res-item");
+      row.innerHTML = `<div><div class="rname">${it.description}</div><div class="rsym">${it.symbol}</div></div><div class="res-add">Add</div>`;
+      row.onclick = () => addSymbol(it.symbol, it.description);
+      box.appendChild(row);
+    });
+  } catch { box.innerHTML = `<div class="searching">Search failed. Press Enter to add “${term.toUpperCase()}” directly.</div>`; }
+}
+
+function addSymbol(sym, name){
+  sym = sym.toUpperCase().trim();
+  if (!sym) return;
+  if (!lists[active]) lists[active] = [];
+  if (!lists[active].includes(sym)){
+    lists[active].push(sym);
+    store.saveLists(lists);
+    if (name){ names[sym] = name; store.saveNames(names); }
+  }
+  closeModal();
+  render();
+  fetchQuote(sym).then(q => { if(q){ quoteCache[sym]=q; updateRow(sym,null);} fetchName(sym).then(render); }).catch(()=>{});
+}
+
+/* ---------- Wire up ---------- */
+$("#addBtn").onclick = openModal;
+$("#modalBack").onclick = e => { if(e.target.id==="modalBack") closeModal(); };
+$("#searchInput").addEventListener("input", e => {
+  clearTimeout(searchTimer);
+  const v = e.target.value;
+  searchTimer = setTimeout(()=>runSearch(v), 280);
+});
+$("#searchInput").addEventListener("keydown", e => {
+  if (e.key==="Enter"){ const v = e.target.value.trim(); if(v) addSymbol(v); }
+});
+document.addEventListener("visibilitychange", () => { if(!document.hidden) loadAll(); });
+
+/* ---------- Boot ---------- */
+renderKeyBar();
+render();
+loadAll();
+</script>
+</body>
+</html>

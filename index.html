@@ -754,11 +754,11 @@ function buyzoneDelta(sym){
   const pct = ((target - q.price) / q.price) * 100;
   return { target, price: q.price, pct, below: target < q.price };
 }
-// Buy-zone price color: green if it's below current price, red if above.
+// Buy-zone price color: green if current price is below the buy zone, red if above.
 function buyzoneDir(d){
   if (!d) return "flat";
-  if (d.target < d.price) return "up";    // buy zone below market → green
-  if (d.target > d.price) return "down";  // buy zone above market → red
+  if (d.price < d.target) return "up";    // price below buy zone → green (in the zone)
+  if (d.price > d.target) return "down";  // price above buy zone → red
   return "flat";
 }
 // "x% above/below buy zone" — wording from the current price's perspective.

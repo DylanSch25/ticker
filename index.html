@@ -113,7 +113,7 @@
   .row.draggable { cursor: grab; }
   .row.dragging { opacity: 0.5; background: var(--surface); }
   .row.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
-  body.editing .row.draggable { grid-template-columns: auto 1fr auto auto; }
+  body.editing .row.draggable { grid-template-columns: auto 1fr 96px 70px; }
   .sortnote { font-size: 12px; color: var(--text-faint); padding: 2px 10px 8px; }
 
   /* Add row (shown in edit mode) */
@@ -143,23 +143,27 @@
 
   /* Column header */
   .colhead {
-    display: grid; grid-template-columns: 1fr auto auto;
+    display: grid; grid-template-columns: 1fr 96px 70px;
     gap: 14px; padding: 12px 20px 6px;
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--text-faint);
   }
   .colhead .r { text-align: right; min-width: 96px; }
   .colhead .r2 { text-align: right; min-width: 70px; }
+  .colhead.wl { grid-template-columns: 1fr 96px 70px 96px; }
+  .colhead .r3 { text-align: right; min-width: 96px; }
 
   /* Rows */
   .list { padding: 0 12px; }
   .row {
-    display: grid; grid-template-columns: 1fr auto auto;
+    display: grid; grid-template-columns: 1fr 96px 70px;
     gap: 14px; align-items: center;
     padding: 13px 8px; border-radius: 12px;
     cursor: pointer; position: relative;
     transition: background .12s;
   }
+  .row.wl { grid-template-columns: 1fr 96px 70px 96px; }
+  body.editing .row.wl.draggable { grid-template-columns: auto 1fr 96px 70px 96px; }
   .row:hover { background: var(--surface); }
   .row + .row::before {
     content: ""; position: absolute; top: 0; left: 8px; right: 8px;
@@ -175,6 +179,27 @@
   .pct {
     font-family: var(--mono); font-size: 13px; font-weight: 560;
     padding: 4px 7px; border-radius: 7px; display: inline-block; min-width: 64px;
+  }
+
+  /* Buy zone (Watchlist only) */
+  .bz-cell { text-align: right; min-width: 96px; }
+  body.editing .bz-cell { padding-right: 6px; }
+  .bz-pct { font-family: var(--mono); font-size: 15px; font-weight: 540; letter-spacing: -0.01em; }
+  .bz-target { font-family: var(--mono); font-size: 10px; color: var(--text); margin-top: 2px; letter-spacing: 0.02em; white-space: nowrap; }
+  .bz-none { font-family: var(--mono); font-size: 14px; color: var(--text-faint); }
+  .bz-set {
+    font-family: var(--sans); font-size: 12px; font-weight: 560; color: var(--accent);
+    border: 1px solid var(--line); background: var(--surface);
+    padding: 5px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  }
+  .bz-edit {
+    cursor: pointer; display: inline-block; text-align: right;
+    border-bottom: 1px dashed var(--text-faint); padding-bottom: 2px;
+  }
+  .bz-edit .bz-pct, .bz-edit .bz-target { border: none; }
+  .skeleton .bz-pct, .skeleton .bz-target {
+    color: transparent; background: var(--surface-2); border-radius: 5px;
+    animation: shimmer 1.3s ease-in-out infinite;
   }
   .up { color: var(--up); }
   .down { color: var(--down); }
@@ -408,7 +433,11 @@ const store = {
   names(){
     try { return JSON.parse(localStorage.getItem("names")) || {}; } catch { return {}; }
   },
-  saveNames(o){ localStorage.setItem("names", JSON.stringify(o)); }
+  saveNames(o){ localStorage.setItem("names", JSON.stringify(o)); },
+  buyzones(){
+    try { return JSON.parse(localStorage.getItem("buyzones")) || {}; } catch { return {}; }
+  },
+  saveBuyzones(o){ localStorage.setItem("buyzones", JSON.stringify(o)); }
 };
 
 let lists = store.lists();
@@ -416,6 +445,7 @@ let baskets = store.baskets();   // { "Semis": ["NVDA","AMD"], ... }
 let openBasket = null;           // name of basket currently opened, or null
 let sortMode = "manual";         // "manual" | "high" | "low"
 let names = store.names();
+let buyzones = store.buyzones();   // { SYMBOL: targetPrice }
 let active = store.active;
 let editing = false;
 let quoteCache = {};   // symbol -> {price, change, pct}
@@ -714,6 +744,44 @@ const fmtChg = c => c==null ? "" : (c>=0?"+":"−") + "$" + Math.abs(c).toFixed(
 const fmtPct = p => p==null ? "—" : (p>=0?"+":"−") + Math.abs(p).toFixed(2) + "%";
 const dirClass = v => v==null ? "flat" : v>0 ? "up" : v<0 ? "down" : "flat";
 
+/* ---------- Buy zone (Watchlist) ---------- */
+// Relationship between the buy-zone price and current market price.
+function buyzoneDelta(sym){
+  const target = buyzones[sym];
+  const q = quoteCache[sym];
+  if (target == null || !q || q.price == null) return null;
+  // % the buy-zone price sits above/below the current market price.
+  const pct = ((target - q.price) / q.price) * 100;
+  return { target, price: q.price, pct, below: target < q.price };
+}
+// Buy-zone price color: green if it's below current price, red if above.
+function buyzoneDir(d){
+  if (!d) return "flat";
+  if (d.target < d.price) return "up";    // buy zone below market → green
+  if (d.target > d.price) return "down";  // buy zone above market → red
+  return "flat";
+}
+// "x% above/below buy zone" — wording from the current price's perspective.
+function buyzonePctLabel(d){
+  if (!d) return "";
+  const diff = ((d.price - d.target) / d.target) * 100;
+  if (Math.abs(diff) < 0.005) return "at buy zone";
+  const word = diff > 0 ? "above" : "below";
+  return Math.abs(diff).toFixed(2) + "% " + word + " buy zone";
+}
+function promptBuyZone(sym){
+  const cur = buyzones[sym];
+  const raw = prompt(`Set buy-zone price for ${names[sym] || sym}` + (cur!=null ? ` (clear to remove)` : ``), cur!=null ? String(cur) : "");
+  if (raw === null) return;                 // cancelled
+  const trimmed = raw.trim();
+  if (trimmed === ""){ delete buyzones[sym]; store.saveBuyzones(buyzones); render(); return; }
+  const val = parseFloat(trimmed.replace(/[^0-9.]/g, ""));
+  if (!isFinite(val) || val <= 0){ alert("Enter a valid price, e.g. 250.00"); return; }
+  buyzones[sym] = val;
+  store.saveBuyzones(buyzones);
+  render();
+}
+
 /* ---------- Render rows ---------- */
 function render(){
   renderTabs();
@@ -721,7 +789,13 @@ function render(){
   renderSubhead();
   renderSortBar();
   const onBasketOverview = (active === "Baskets" && !openBasket);
-  $("#colhead").style.display = onBasketOverview ? "none" : "grid";
+  const colhead = $("#colhead");
+  colhead.style.display = onBasketOverview ? "none" : "grid";
+  const isWatchlist = (active === "Watchlist");
+  colhead.classList.toggle("wl", isWatchlist);
+  colhead.innerHTML = isWatchlist
+    ? `<div>Company / Ticker</div><div class="r">Price · 1D Chg</div><div class="r2">1D %</div><div class="r3">Buy Zone</div>`
+    : `<div>Company / Ticker</div><div class="r">Price · 1D Chg</div><div class="r2">1D %</div>`;
   const list = $("#list");
 
   // Baskets tab, no basket opened → show the overview of baskets
@@ -759,7 +833,7 @@ function render(){
 
   symbols.forEach(sym => {
     const q = quoteCache[sym];
-    const row = el("div","row" + (q ? "" : " skeleton") + (canDrag ? " draggable" : ""));
+    const row = el("div","row" + (q ? "" : " skeleton") + (canDrag ? " draggable" : "") + (isWatchlist ? " wl" : ""));
     row.dataset.sym = sym;
     if (canDrag){
       row.draggable = true;
@@ -789,10 +863,43 @@ function render(){
     const pct = el("span","pct " + dirClass(q?.pct)); pct.textContent = q ? fmtPct(q.pct) : "0.00%";
     pctCell.appendChild(pct);
 
+    let bzCell = null;
+    if (isWatchlist){
+      bzCell = el("div","bz-cell");
+      const d = buyzoneDelta(sym);
+      if (editing){
+        // Tappable target to set/change/clear the buy-zone price.
+        if (buyzones[sym] != null){
+          bzCell.innerHTML =
+            `<div class="bz-edit">` +
+              `<div class="bz-pct ${buyzoneDir(d)}">${fmtPrice(buyzones[sym])}</div>` +
+              (d ? `<div class="bz-target">${buyzonePctLabel(d)}</div>` : ``) +
+            `</div>`;
+        } else {
+          bzCell.innerHTML = `<span class="bz-set">Set</span>`;
+        }
+        bzCell.onclick = (ev) => { ev.stopPropagation(); promptBuyZone(sym); };
+      } else {
+        if (d){
+          const dir = buyzoneDir(d);
+          bzCell.innerHTML =
+            `<div class="bz-pct ${dir}">${fmtPrice(d.target)}</div>` +
+            `<div class="bz-target">${buyzonePctLabel(d)}</div>`;
+        } else if (buyzones[sym] != null){
+          // target set but no quote yet
+          bzCell.innerHTML = `<div class="bz-pct flat">${fmtPrice(buyzones[sym])}</div>`;
+        } else {
+          bzCell.innerHTML = `<span class="bz-none">—</span>`;
+        }
+      }
+    }
+
     const del = el("button","del"); del.textContent = "×";
     del.onclick = (ev) => { ev.stopPropagation(); removeSymbol(sym); };
 
-    row.appendChild(nameCell); row.appendChild(priceCell); row.appendChild(pctCell); row.appendChild(del);
+    row.appendChild(nameCell); row.appendChild(priceCell); row.appendChild(pctCell);
+    if (bzCell) row.appendChild(bzCell);
+    row.appendChild(del);
     row.onclick = () => { if(editing) return; openDetail(sym); };
     list.appendChild(row);
   });
@@ -877,6 +984,17 @@ function updateRow(sym, prev){
   chg.textContent = fmtChg(q.change); chg.className = "chg " + dirClass(q.change);
   const pct = row.querySelector(".pct");
   pct.textContent = fmtPct(q.pct); pct.className = "pct " + dirClass(q.pct);
+  // Refresh buy-zone cell (watchlist, non-edit view) so it tracks the live price.
+  const bzCell = row.querySelector(".bz-cell");
+  if (bzCell && !editing){
+    const d = buyzoneDelta(sym);
+    if (d){
+      const dir = buyzoneDir(d);
+      bzCell.innerHTML =
+        `<div class="bz-pct ${dir}">${fmtPrice(d.target)}</div>` +
+        `<div class="bz-target">${buyzonePctLabel(d)}</div>`;
+    }
+  }
   if (prev && prev.price != null && q.price !== prev.price){
     row.classList.remove("tickUp","tickDown");
     void row.offsetWidth;

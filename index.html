@@ -345,44 +345,6 @@
     color: var(--text-dim); font-size: 13px; text-align: center; padding: 0 24px;
   }
 
-  /* Financials panel (detail view, collapsible) */
-  .fin { margin: 26px 0 0; border-top: 1px solid var(--line); }
-  .fin-toggle {
-    width: 100%; display: flex; align-items: center; justify-content: space-between;
-    background: none; border: none; cursor: pointer; font-family: var(--sans);
-    padding: 16px 2px 14px; color: var(--text);
-  }
-  .fin-toggle-label { font-size: 15px; font-weight: 620; letter-spacing: -0.01em; }
-  .fin-toggle-caret { color: var(--text-faint); font-size: 13px; transition: transform .18s; }
-  .fin.open .fin-toggle-caret { transform: rotate(180deg); }
-  .fin-body { display: none; padding: 0 0 8px; }
-  .fin.open .fin-body { display: block; }
-  .fin-group { margin-bottom: 18px; }
-  .fin-group:last-child { margin-bottom: 4px; }
-  .fin-group-title {
-    font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--text-faint); margin-bottom: 8px;
-  }
-  .fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
-  .fin-item { background: var(--surface); padding: 11px 13px; }
-  .fin-item .fl { font-size: 11.5px; color: var(--text-dim); letter-spacing: -0.01em; }
-  .fin-item .fv { font-family: var(--mono); font-size: 15px; font-weight: 540; margin-top: 3px; letter-spacing: -0.01em; }
-  .fin-source { font-family: var(--mono); font-size: 10px; color: var(--text-faint); margin-top: 12px; letter-spacing: 0.02em; }
-  .fin-loading, .fin-error, .fin-needkey {
-    color: var(--text-dim); font-size: 13px; line-height: 1.5; padding: 8px 2px 14px;
-  }
-  .fin-needkey a { color: var(--accent); text-decoration: none; }
-  .fin-keyrow { display: flex; gap: 8px; margin-top: 10px; }
-  .fin-keyrow input {
-    flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--text);
-    font-family: var(--mono); font-size: 13px; padding: 10px 12px; border-radius: 10px; outline: none;
-  }
-  .fin-keyrow input:focus { border-color: var(--accent); }
-  .fin-keyrow button {
-    background: var(--accent); color: #fff; border: none; font-weight: 640; font-size: 13px;
-    padding: 0 16px; border-radius: 10px; cursor: pointer; font-family: var(--sans);
-  }
-
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 </style>
 </head>
@@ -457,8 +419,6 @@ const store = {
   set key(v){ localStorage.setItem("fh_key", v); },
   get tdKey(){ return localStorage.getItem("td_key") || ""; },
   set tdKey(v){ localStorage.setItem("td_key", v); },
-  get fmpKey(){ return localStorage.getItem("fmp_key") || ""; },
-  set fmpKey(v){ localStorage.setItem("fmp_key", v); },
   get active(){ return localStorage.getItem("active_list") || LISTS[0]; },
   set active(v){ localStorage.setItem("active_list", v); },
   lists(){
@@ -507,24 +467,19 @@ function renderKeyBar(){
       </div>
       <div class="keyrow" style="margin-top:8px;">
         <input id="tdKeyInput" placeholder="Twelve Data key (charts)" autocomplete="off" value="${store.tdKey||""}">
-      </div>
-      <div class="keyrow" style="margin-top:8px;">
-        <input id="fmpKeyInput" placeholder="FMP key (financials — optional)" autocomplete="off" value="${store.fmpKey||""}">
         <button id="keySave">Save</button>
       </div>
     </div>`;
   $("#keySave").onclick = () => {
     const fh = $("#keyInput").value.trim();
     const td = $("#tdKeyInput").value.trim();
-    const fmp = $("#fmpKeyInput").value.trim();
     if (fh) store.key = fh;
     if (td) store.tdKey = td;
-    if (fmp) store.fmpKey = fmp;
     renderKeyBar();
     loadAll();
     loadIndexes();
   };
-  [$("#keyInput"), $("#tdKeyInput"), $("#fmpKeyInput")].forEach(inp =>
+  [$("#keyInput"), $("#tdKeyInput")].forEach(inp =>
     inp.addEventListener("keydown", e => { if(e.key==="Enter") $("#keySave").click(); }));
 }
 
@@ -1147,13 +1102,10 @@ const TD_API = "https://api.twelvedata.com";
 let detailSym = null;
 let detailHorizon = "1D";
 const seriesCache = {};   // `${sym}|${horizonId}` -> [{t, c}]
-let finOpen = false;            // is the financials panel expanded
-const finCache = {};            // sym -> { data, date } cached per day
 
 function openDetail(sym){
   detailSym = sym;
   detailHorizon = "1D";
-  finOpen = false;              // collapsed by default each time you open a stock
   renderDetail();
   $("#detail").classList.add("open");
   loadSeries(sym, "1D");
@@ -1161,152 +1113,6 @@ function openDetail(sym){
 function closeDetail(){
   $("#detail").classList.remove("open");
   detailSym = null;
-}
-
-/* ---------- Financials (FMP) ---------- */
-const FMP_API = "https://financialmodelingprep.com/stable";
-const todayStamp = () => new Date().toISOString().slice(0,10);
-
-// Format a ratio/multiple, e.g. 19.42 -> "19.4×"
-const fmtMult = v => (v==null || !isFinite(v)) ? "—" : v.toFixed(1) + "×";
-// Format a growth rate stored as a fraction, e.g. 0.2217 -> "+22.2%"
-const fmtGrowth = v => (v==null || !isFinite(v)) ? "—" : (v>=0?"+":"−") + Math.abs(v*100).toFixed(1) + "%";
-
-async function fmpFetch(path){
-  const sep = path.includes("?") ? "&" : "?";
-  const r = await fetch(`${FMP_API}/${path}${sep}apikey=${store.fmpKey}`);
-  if (r.status === 401 || r.status === 403) throw { kind: "auth" };
-  if (!r.ok) throw { kind: "http", status: r.status };
-  return r.json();
-}
-
-async function loadFinancials(sym){
-  renderFinBody();                       // paint current state (loading / needkey)
-  if (!store.fmpKey) return;             // needkey state already shown
-
-  // Serve from per-day cache if present.
-  const cached = finCache[sym];
-  if (cached && cached.date === todayStamp()){ renderFinBody(); return; }
-
-  // Mark loading for this symbol.
-  finCache[sym] = { loading: true, date: todayStamp() };
-  renderFinBody();
-
-  // Some companies populate fundamentals under a different share-class ticker
-  // on the free tier (e.g. Alphabet under GOOGL, not GOOG). Try fallbacks.
-  const FMP_SYMBOL_FALLBACK = { GOOG: "GOOGL", FOX: "FOXA", NWS: "NWSA", LBRDK: "LBRDA" };
-
-  async function fetchFin(s){
-    // 2 free endpoints: TTM ratios (P/E, P/S, P/FCF, EV) + statement growth (1Y).
-    const [ratios, growthArr] = await Promise.all([
-      fmpFetch(`metrics-ratios-ttm?symbol=${encodeURIComponent(s)}`),
-      fmpFetch(`financial-statement-growth?symbol=${encodeURIComponent(s)}&period=annual&limit=1`)
-    ]);
-    const r = Array.isArray(ratios) ? ratios[0] : ratios;
-    const g = Array.isArray(growthArr) ? growthArr[0] : growthArr;
-    return { r, g };
-  }
-
-  try {
-    let { r, g } = await fetchFin(sym);
-    // If empty, retry once under a known alternate share-class ticker.
-    if (!r && FMP_SYMBOL_FALLBACK[sym]){
-      ({ r, g } = await fetchFin(FMP_SYMBOL_FALLBACK[sym]));
-    }
-    if (!r){ finCache[sym] = { error: "nodata", date: todayStamp() }; renderFinBody(); return; }
-
-    const data = {
-      multiples: {
-        pe:        r.priceToEarningsRatioTTM,
-        ps:        r.priceToSalesRatioTTM,
-        pfcf:      r.priceToFreeCashFlowRatioTTM,
-        evEbitda:  r.enterpriseValueMultipleTTM   // EV/EBITDA, from free ratios endpoint
-      },
-      growth: g ? {
-        revenue:  g.revenueGrowth,
-        gross:    g.grossProfitGrowth,
-        ebit:     (g.ebitgrowth != null ? g.ebitgrowth : g.operatingIncomeGrowth),
-        ebitda:   g.ebitdaGrowth,
-        net:      g.netIncomeGrowth,
-        ocf:      g.operatingCashFlowGrowth,
-        fcf:      g.freeCashFlowGrowth
-      } : null,
-      asOf: (g && g.date) || todayStamp()
-    };
-    finCache[sym] = { data, date: todayStamp() };
-  } catch(e){
-    finCache[sym] = { error: e && e.kind === "auth" ? "auth" : "fetch", date: todayStamp() };
-  }
-  renderFinBody();
-}
-
-function renderFinBody(){
-  const body = $("#finBody");
-  if (!body) return;
-  const sym = detailSym;
-
-  if (!store.fmpKey){
-    body.innerHTML = `
-      <div class="fin-needkey">
-        Add a free <a href="https://financialmodelingprep.com/register" target="_blank" rel="noopener">FMP</a> key to see valuation multiples and growth. Stays on this device.
-        <div class="fin-keyrow">
-          <input id="finKeyInput" placeholder="FMP key" autocomplete="off">
-          <button id="finKeySave">Save</button>
-        </div>
-      </div>`;
-    $("#finKeySave").onclick = () => {
-      const v = $("#finKeyInput").value.trim();
-      if (v){ store.fmpKey = v; renderKeyBar(); loadFinancials(sym); }
-    };
-    $("#finKeyInput").addEventListener("keydown", e => { if(e.key==="Enter") $("#finKeySave").click(); });
-    return;
-  }
-
-  const entry = finCache[sym];
-  if (!entry || entry.loading){ body.innerHTML = `<div class="fin-loading">Loading financials…</div>`; return; }
-  if (entry.error === "auth"){ body.innerHTML = `<div class="fin-error">That FMP key was rejected. Check it in setup and try again.</div>`; return; }
-  if (entry.error === "nodata"){ body.innerHTML = `<div class="fin-error">No financials available for ${sym} on the free FMP tier — this symbol isn't covered. Most large US stocks work.</div>`; return; }
-  if (entry.error){ body.innerHTML = `<div class="fin-error">Couldn't load financials for ${sym}. The daily FMP limit may have been reached, or the connection failed.</div>`; return; }
-
-  const d = entry.data;
-  const m = d.multiples;
-  const valItems = [
-    ["P/E", fmtMult(m.pe)],
-    ["P/S", fmtMult(m.ps)],
-    ["EV/EBITDA", fmtMult(m.evEbitda)],
-    ["P/FCF", fmtMult(m.pfcf)]
-  ];
-  let valGrid = valItems.map(([l,v]) =>
-    `<div class="fin-item"><div class="fl">${l}</div><div class="fv">${v}</div></div>`).join("");
-
-  let growthSection = "";
-  if (d.growth){
-    const gr = d.growth;
-    const grItems = [
-      ["Revenue", gr.revenue],
-      ["Gross profit", gr.gross],
-      ["EBIT", gr.ebit],
-      ["EBITDA", gr.ebitda],
-      ["Net income", gr.net],
-      ["Operating CF", gr.ocf],
-      ["Free cash flow", gr.fcf]
-    ];
-    const grGrid = grItems.map(([l,v]) =>
-      `<div class="fin-item"><div class="fl">${l}</div><div class="fv ${v==null?"":dirClass(v)}">${fmtGrowth(v)}</div></div>`).join("");
-    growthSection = `
-      <div class="fin-group">
-        <div class="fin-group-title">1-Year Growth</div>
-        <div class="fin-grid">${grGrid}</div>
-      </div>`;
-  }
-
-  body.innerHTML = `
-    <div class="fin-group">
-      <div class="fin-group-title">Valuation · TTM</div>
-      <div class="fin-grid">${valGrid}</div>
-    </div>
-    ${growthSection}
-    <div class="fin-source">Source: Financial Modeling Prep · as of ${d.asOf}</div>`;
 }
 
 function renderDetail(){
@@ -1321,13 +1127,6 @@ function renderDetail(){
     <div class="horizons" id="horizons"></div>
     <div class="chart-meta" id="chartMeta"></div>
     <div class="chart-wrap" id="chartWrap"></div>
-    <div class="fin${finOpen ? " open" : ""}" id="finPanel">
-      <button class="fin-toggle" id="finToggle">
-        <span class="fin-toggle-label">Financials</span>
-        <span class="fin-toggle-caret">▾</span>
-      </button>
-      <div class="fin-body" id="finBody"></div>
-    </div>
   `;
   const hz = $("#horizons");
   HORIZONS.forEach(h => {
@@ -1341,15 +1140,6 @@ function renderDetail(){
   const cached = seriesCache[`${detailSym}|${detailHorizon}`];
   if (cached) drawChart(cached);
   else $("#chartWrap").innerHTML = `<div class="chart-loading">Loading chart…</div>`;
-
-  // Financials panel toggle (lazy-loads on first expand)
-  $("#finToggle").onclick = () => {
-    finOpen = !finOpen;
-    $("#finPanel").classList.toggle("open", finOpen);
-    if (finOpen) loadFinancials(detailSym);
-  };
-  renderFinBody();
-  if (finOpen) loadFinancials(detailSym);
 }
 
 async function loadSeries(sym, horizonId){

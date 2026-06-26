@@ -1192,25 +1192,35 @@ async function loadFinancials(sym){
   finCache[sym] = { loading: true, date: todayStamp() };
   renderFinBody();
 
-  try {
-    // 2 calls cover all TTM multiples; 1 call covers 1Y growth. (3 total)
-    const [ratios, keyMetrics, growthArr] = await Promise.all([
-      fmpFetch(`metrics-ratios-ttm?symbol=${encodeURIComponent(sym)}`),
-      fmpFetch(`key-metrics-ttm?symbol=${encodeURIComponent(sym)}`),
-      fmpFetch(`financial-statement-growth?symbol=${encodeURIComponent(sym)}&period=annual&limit=1`)
+  // Some companies populate fundamentals under a different share-class ticker
+  // on the free tier (e.g. Alphabet under GOOGL, not GOOG). Try fallbacks.
+  const FMP_SYMBOL_FALLBACK = { GOOG: "GOOGL", FOX: "FOXA", NWS: "NWSA", LBRDK: "LBRDA" };
+
+  async function fetchFin(s){
+    // 2 free endpoints: TTM ratios (P/E, P/S, P/FCF, EV) + statement growth (1Y).
+    const [ratios, growthArr] = await Promise.all([
+      fmpFetch(`metrics-ratios-ttm?symbol=${encodeURIComponent(s)}`),
+      fmpFetch(`financial-statement-growth?symbol=${encodeURIComponent(s)}&period=annual&limit=1`)
     ]);
     const r = Array.isArray(ratios) ? ratios[0] : ratios;
-    const k = Array.isArray(keyMetrics) ? keyMetrics[0] : keyMetrics;
     const g = Array.isArray(growthArr) ? growthArr[0] : growthArr;
-    if (!r || !k){ finCache[sym] = { error: "nodata", date: todayStamp() }; renderFinBody(); return; }
+    return { r, g };
+  }
+
+  try {
+    let { r, g } = await fetchFin(sym);
+    // If empty, retry once under a known alternate share-class ticker.
+    if (!r && FMP_SYMBOL_FALLBACK[sym]){
+      ({ r, g } = await fetchFin(FMP_SYMBOL_FALLBACK[sym]));
+    }
+    if (!r){ finCache[sym] = { error: "nodata", date: todayStamp() }; renderFinBody(); return; }
 
     const data = {
       multiples: {
         pe:        r.priceToEarningsRatioTTM,
         ps:        r.priceToSalesRatioTTM,
         pfcf:      r.priceToFreeCashFlowRatioTTM,
-        evRev:     k.evToSalesTTM,
-        evEbitda:  k.evToEBITDATTM
+        evEbitda:  r.enterpriseValueMultipleTTM   // EV/EBITDA, from free ratios endpoint
       },
       growth: g ? {
         revenue:  g.revenueGrowth,
@@ -1221,7 +1231,7 @@ async function loadFinancials(sym){
         ocf:      g.operatingCashFlowGrowth,
         fcf:      g.freeCashFlowGrowth
       } : null,
-      asOf: (g && g.date) || (k && k.date) || todayStamp()
+      asOf: (g && g.date) || todayStamp()
     };
     finCache[sym] = { data, date: todayStamp() };
   } catch(e){
@@ -1255,14 +1265,14 @@ function renderFinBody(){
   const entry = finCache[sym];
   if (!entry || entry.loading){ body.innerHTML = `<div class="fin-loading">Loading financials…</div>`; return; }
   if (entry.error === "auth"){ body.innerHTML = `<div class="fin-error">That FMP key was rejected. Check it in setup and try again.</div>`; return; }
-  if (entry.error){ body.innerHTML = `<div class="fin-error">Couldn't load financials for ${sym}. The free tier may not cover this symbol, or the daily limit was reached.</div>`; return; }
+  if (entry.error === "nodata"){ body.innerHTML = `<div class="fin-error">No financials available for ${sym} on the free FMP tier — this symbol isn't covered. Most large US stocks work.</div>`; return; }
+  if (entry.error){ body.innerHTML = `<div class="fin-error">Couldn't load financials for ${sym}. The daily FMP limit may have been reached, or the connection failed.</div>`; return; }
 
   const d = entry.data;
   const m = d.multiples;
   const valItems = [
     ["P/E", fmtMult(m.pe)],
     ["P/S", fmtMult(m.ps)],
-    ["EV/Revenue", fmtMult(m.evRev)],
     ["EV/EBITDA", fmtMult(m.evEbitda)],
     ["P/FCF", fmtMult(m.pfcf)]
   ];

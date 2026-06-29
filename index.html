@@ -79,6 +79,7 @@
   .b-name { font-size: 16px; font-weight: 580; letter-spacing: -0.01em; }
   .b-sub { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
   .b-avg { font-family: var(--mono); font-size: 14px; font-weight: 560; min-width: 72px; text-align: right; }
+  .b-avg.bz-loading { font-size: 11.5px; color: var(--text-faint); animation: pulseFade 1.4s ease-in-out infinite; }
   .b-chevron { color: var(--text-faint); font-size: 22px; line-height: 1; margin-left: 4px; }
   body.editing .basket-row { padding-right: 40px; }
   body.editing .basket-row .b-chevron { display: none; }
@@ -209,9 +210,12 @@
   .pct.flat { background: var(--surface-2); }
 
   .skeleton .price, .skeleton .chg, .skeleton .pct {
-    color: transparent; background: var(--surface-2); border-radius: 5px;
-    animation: shimmer 1.3s ease-in-out infinite;
+    color: var(--text-faint); background: transparent;
+    font-weight: 500; letter-spacing: 0;
+    animation: pulseFade 1.4s ease-in-out infinite;
   }
+  .skeleton .pct { background: transparent; }
+  @keyframes pulseFade { 0%,100%{opacity:.45} 50%{opacity:.85} }
   @keyframes shimmer { 0%,100%{opacity:.5} 50%{opacity:.9} }
 
   /* tick flash */
@@ -451,6 +455,72 @@ let editing = false;
 let quoteCache = {};   // symbol -> {price, change, pct}
 let pollTimer = null;
 
+/* ---------- Persistent quote cache ----------
+   Last-known quotes are saved so the app shows prices/averages instantly on
+   open, then refreshes. A symbol only ever moves from "Loading" to a real
+   value — it never reverts to Loading once it has loaded at least once. */
+try { quoteCache = JSON.parse(localStorage.getItem("quoteCache")) || {}; } catch { quoteCache = {}; }
+let _saveCacheTimer = null;
+function persistQuoteCache(){
+  clearTimeout(_saveCacheTimer);
+  _saveCacheTimer = setTimeout(() => {
+    try { localStorage.setItem("quoteCache", JSON.stringify(quoteCache)); } catch {}
+  }, 400);
+}
+
+/* ---------- Throttled request queue ----------
+   Finnhub free tier allows ~60 calls/min. Firing 50+ symbols at once causes
+   429s and silently-dropped data. This queue runs a few requests at a time,
+   paced under the limit, and retries 429/network failures with backoff so
+   every symbol eventually loads instead of randomly failing. */
+const QUEUE = {
+  pending: [],        // [{fn, tries, resolve}]
+  active: 0,
+  MAX_CONCURRENT: 4,  // simultaneous in-flight requests
+  MIN_GAP_MS: 220,    // spacing between dispatches (~4.5/sec -> well under 60/min sustained)
+  MAX_TRIES: 4,
+  lastDispatch: 0,
+
+  add(fn){
+    return new Promise(resolve => {
+      this.pending.push({ fn, tries: 0, resolve });
+      this.pump();
+    });
+  },
+  pump(){
+    if (this.active >= this.MAX_CONCURRENT) return;
+    if (!this.pending.length) return;
+    const now = Date.now();
+    const wait = Math.max(0, this.MIN_GAP_MS - (now - this.lastDispatch));
+    setTimeout(() => this._dispatch(), wait);
+  },
+  async _dispatch(){
+    if (this.active >= this.MAX_CONCURRENT || !this.pending.length) return;
+    const job = this.pending.shift();
+    this.active++;
+    this.lastDispatch = Date.now();
+    // immediately try to fill remaining concurrency slots
+    this.pump();
+    try {
+      const result = await job.fn();
+      job.resolve(result);
+    } catch (err){
+      job.tries++;
+      const is429 = err && /(^|\D)429(\D|$)/.test(String(err.message || err));
+      if (job.tries < this.MAX_TRIES){
+        // back off: 429 waits longer; others retry quickly
+        const delay = (is429 ? 1500 : 600) * job.tries;
+        setTimeout(() => { this.pending.push(job); this.pump(); }, delay);
+      } else {
+        job.resolve(null); // give up gracefully; stays "Loading" until next cycle
+      }
+    } finally {
+      this.active--;
+      this.pump();
+    }
+  }
+};
+
 const $ = s => document.querySelector(s);
 const el = (t, c) => { const e = document.createElement(t); if(c) e.className = c; return e; };
 
@@ -631,7 +701,7 @@ function renderBasketOverview(){
         ${nameInner}
         <div class="b-sub">${count} ${count===1?"stock":"stocks"}</div>
       </div>
-      <div class="b-avg ${avg==null ? "flat" : dirClass(avg)}">${avg==null ? "—" : (haveAll ? "" : "~") + fmtPct(avg)}</div>
+      <div class="b-avg ${avg==null ? "flat bz-loading" : dirClass(avg)}">${avg==null ? "Loading" : (haveAll ? "" : "~") + fmtPct(avg)}</div>
       <div class="b-chevron">›</div>`;
     row.onclick = () => { if(editing) return; openBasket = bname; render(); loadAll(); };
     if (editing){
@@ -855,12 +925,12 @@ function render(){
     nameCell.appendChild(cname); nameCell.appendChild(tick);
 
     const priceCell = el("div","price-cell");
-    const price = el("div","price"); price.textContent = q ? fmtPrice(q.price) : "0000.00";
-    const chg = el("div","chg " + dirClass(q?.change)); chg.textContent = q ? fmtChg(q.change) : "+0.00";
+    const price = el("div","price"); price.textContent = q ? fmtPrice(q.price) : "Loading";
+    const chg = el("div","chg " + dirClass(q?.change)); chg.textContent = q ? fmtChg(q.change) : "";
     priceCell.appendChild(price); priceCell.appendChild(chg);
 
     const pctCell = el("div","pct-cell");
-    const pct = el("span","pct " + dirClass(q?.pct)); pct.textContent = q ? fmtPct(q.pct) : "0.00%";
+    const pct = el("span","pct " + dirClass(q?.pct)); pct.textContent = q ? fmtPct(q.pct) : "·";
     pctCell.appendChild(pct);
 
     let bzCell = null;
@@ -924,6 +994,12 @@ function renderSubhead(){
 
 /* ---------- Data fetching ---------- */
 async function fetchQuote(sym){
+  return QUEUE.add(() => rawFetchQuote(sym)).then(q => {
+    if (q){ quoteCache[sym] = q; persistQuoteCache(); }
+    return q;
+  });
+}
+async function rawFetchQuote(sym){
   const r = await fetch(`${API}/quote?symbol=${encodeURIComponent(sym)}&token=${store.key}`);
   if (!r.ok) throw new Error("quote " + r.status);
   const d = await r.json();
@@ -934,11 +1010,15 @@ async function fetchQuote(sym){
 
 async function fetchName(sym){
   if (names[sym]) return;
-  try {
+  // Names go through the same queue but are naturally lower priority because
+  // quotes are enqueued first. Once cached they never re-fetch.
+  await QUEUE.add(async () => {
     const r = await fetch(`${API}/stock/profile2?symbol=${encodeURIComponent(sym)}&token=${store.key}`);
+    if (!r.ok) throw new Error("profile " + r.status);
     const d = await r.json();
     if (d && d.name){ names[sym] = d.name; store.saveNames(names); }
-  } catch {}
+    return d;
+  }).catch(()=>{});
 }
 
 async function loadAll(){
@@ -947,29 +1027,35 @@ async function loadAll(){
   if (active === "Baskets" && !openBasket){
     render();
     const allSyms = [...new Set(Object.values(baskets).flat())];
-    await Promise.all(allSyms.map(async sym => {
-      try {
-        const [q] = await Promise.all([ fetchQuote(sym), fetchName(sym) ]);
-        if (q) quoteCache[sym] = q;
-      } catch {}
-    }));
-    if (active === "Baskets" && !openBasket) render();
+    setStatus("loading");
+    // Enqueue ALL quotes first (high priority), each re-rendering the overview
+    // as it lands so averages fill in progressively rather than all-or-nothing.
+    const quoteJobs = allSyms.map(sym =>
+      fetchQuote(sym).then(q => {
+        if (q && active === "Baskets" && !openBasket) renderBasketOverview();
+      }).catch(()=>{})
+    );
+    // Names enqueued after quotes so quotes win the rate budget.
+    allSyms.forEach(sym => fetchName(sym));
+    await Promise.all(quoteJobs);
+    if (active === "Baskets" && !openBasket) renderBasketOverview();
+    setStatus(marketOpen() ? "live" : "stale");
+    startPolling();
     return;
   }
   const symbols = currentSymbols();
   if (!symbols.length){ setStatus("idle"); render(); return; }
   setStatus("loading");
   render();
-  await Promise.all(symbols.map(async sym => {
-    try {
-      const [q] = await Promise.all([ fetchQuote(sym), fetchName(sym) ]);
-      if (q){
-        const prev = quoteCache[sym];
-        quoteCache[sym] = q;
-        updateRow(sym, prev);
-      }
-    } catch(e){ /* leave skeleton */ }
-  }));
+  // Quotes first, each updating its row the moment it resolves.
+  const quoteJobs = symbols.map(sym => {
+    const prev = quoteCache[sym];   // capture BEFORE fetch overwrites cache
+    return fetchQuote(sym).then(q => {
+      if (q) updateRow(sym, prev);
+    }).catch(()=>{});
+  });
+  symbols.forEach(sym => fetchName(sym).then(() => updateRowName(sym)));
+  await Promise.all(quoteJobs);
   setStatus(marketOpen() ? "live" : "stale");
   startPolling();
 }
@@ -1002,6 +1088,14 @@ function updateRow(sym, prev){
   }
 }
 
+// Fill in the company name when a profile lookup resolves, without a full re-render.
+function updateRowName(sym){
+  const row = document.querySelector(`.row[data-sym="${sym}"]`);
+  if (!row) return;
+  const cn = row.querySelector(".cname");
+  if (cn && names[sym]) cn.textContent = names[sym];
+}
+
 /* ---------- Status ---------- */
 function marketOpen(){
   const now = new Date();
@@ -1028,8 +1122,9 @@ function startPolling(){
   if (!marketOpen()) return;
   pollTimer = setInterval(() => {
     const symbols = currentSymbols();
-    symbols.forEach(async sym => {
-      try { const q = await fetchQuote(sym); if(q){ const prev = quoteCache[sym]; quoteCache[sym]=q; updateRow(sym,prev);} } catch{}
+    symbols.forEach(sym => {
+      const prev = quoteCache[sym];
+      fetchQuote(sym).then(q => { if(q) updateRow(sym, prev); }).catch(()=>{});
     });
     setStatus("live");
   }, 15000);
